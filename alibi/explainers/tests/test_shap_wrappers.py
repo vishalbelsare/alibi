@@ -1,17 +1,23 @@
 # type: ignore
-import catboost
 import itertools
 import logging
+import unittest
+from copy import copy
+from itertools import chain
+from unittest.mock import MagicMock
+from typing import Any, List
+
+import catboost
 import pandas
 import pytest
 import scipy.sparse
-import shap
 import sklearn
-import unittest
-
+import shap
 import numpy as np
 import pandas as pd
 import shap.utils._legacy as shap_utils
+from numpy.testing import assert_allclose, assert_almost_equal
+from scipy.special import expit
 
 from alibi.api.defaults import DEFAULT_META_KERNEL_SHAP, DEFAULT_DATA_KERNEL_SHAP, \
     DEFAULT_META_TREE_SHAP, DEFAULT_DATA_TREE_SHAP, KERNEL_SHAP_PARAMS, TREE_SHAP_PARAMS
@@ -19,13 +25,8 @@ from alibi.explainers.shap_wrappers import sum_categories, rank_by_importance, K
 from alibi.explainers.shap_wrappers import KERNEL_SHAP_BACKGROUND_THRESHOLD, TREE_SHAP_BACKGROUND_WARNING_THRESHOLD
 from alibi.explainers.tests.utils import get_random_matrix
 from alibi.tests.utils import assert_message_in_logs, not_raises
-from alibi.utils.distributed import DistributedExplainer
-from copy import copy
-from itertools import chain
-from numpy.testing import assert_allclose, assert_almost_equal
-from scipy.special import expit
-from unittest.mock import MagicMock
-from typing import Any, List
+from alibi.utils import DistributedExplainer
+
 
 SUPPORTED_BACKGROUND_DATA_TYPES = ['data', 'array', 'sparse', 'frame', 'series']
 
@@ -741,10 +742,10 @@ def test__summarise_background_kernel(caplog,
         msg = "Received option to summarise the data but the background_data object was an " \
               "instance of shap_utils.Data"
         assert_message_in_logs(msg, caplog.records)
-        assert type(background_data) == type(summary_data)
+        assert type(background_data) == type(summary_data)  # noqa: E721
     else:
         if use_groups or categorical_names:
-            assert type(background_data) == type(summary_data)
+            assert type(background_data) == type(summary_data)  # noqa: E721
             if data_type == 'series':
                 assert summary_data.shape == background_data.shape
             else:
@@ -993,13 +994,23 @@ def test_explain_kernel(monkeypatch, mock_kernel_shap_explainer, use_groups, sum
     explainer.use_groups = use_groups
     explainer.fit(background_data, group_names=group_names, groups=groups)
 
-    # explain some instances
+    # Explain some instances. Note that we disable the default 'auto' regularization which causes sklearn to throw
+    # ValueError in LassoLARSIC. The noise variance estimate used in the AIC criterion is obtained by solving an
+    # Ordinary Least Squares problem: ||Ax - b||^2, where matrix A has nsamples(4) rows. The error is thrown when the
+    # number of rows in A is less than its number of columns. Note that when the number of rows is less than the
+    # number of columns, the solution is not unique, and depending on the rank(A), the solution might be exact
+    # (i.e. variance of zero). An alternative would be to increase the number of rows which corresponds to increasing
+    # nsamples. Increasing the number of rows will also bypass the warning message returned by KernelSHAP. KernelSHAP
+    # solves a Weighted Least Squares problem, and uses the pseudo-inverse when inversion is not possible. If the
+    # pseudo-inverse is used, KernalSHAP throws a warning along with some suggestions to overcome obtaining a
+    # singular matrix.
     explanation = explainer.explain(
         instances,
         summarise_result=summarise_result,
         cat_vars_enc_dim=cat_vars_enc_dim,
         cat_vars_start_idx=cat_vars_start_idx,
         nsamples=4,
+        l1_reg=False
     )
 
     # check that explanation metadata and data keys are as expected
@@ -1055,7 +1066,7 @@ def test_build_explanation_kernel(mock_kernel_shap_explainer, task):
     X = get_random_matrix(n_rows=n_instances, n_cols=n_feats)
     shap_values = [get_random_matrix(n_rows=n_instances, n_cols=n_feats) for _ in range(n_outs)]
     expected_value = [np.random.random() for _ in range(n_outs)]
-    response = explainer.build_explanation(X, shap_values, expected_value)
+    response = explainer._build_explanation(X, shap_values, expected_value)
 
     if task == 'regression':
         assert not response.data['raw']['prediction']
@@ -1080,9 +1091,7 @@ n_instances, n_features = 10, 10
 @pytest.mark.parametrize('n_instances', (n_instances,), ids='n_instances={}'.format)
 @pytest.mark.parametrize('n_features', (n_features,), ids='n_features={}'.format)
 def test_kernel_distributed_execution(mock_kernel_shap_explainer, mock_ker_exp_params, n_instances, n_features):
-
-    import ray
-
+    ray = pytest.importorskip('ray', reason="Distributed tests skipped as Ray not installed")
     explainer = mock_kernel_shap_explainer
     background_data = get_random_matrix(n_rows=n_instances, n_cols=n_features)
     explainer.fit(background_data)
@@ -1172,14 +1181,14 @@ def test__summarise_background_tree(mock_tree_shap_explainer, data_dimension, da
     assert explainer.summarise_background
     if n_background_samples > n_instances:
         if categorical_names:
-            assert type(background_data) == type(summary_data)
+            assert type(background_data) == type(summary_data)  # noqa: E721
         else:
             assert isinstance(summary_data, shap_utils.Data)
             assert summary_data.data.shape == background_data.shape
     else:
         if categorical_names:
             assert summary_data.shape[0] == n_background_samples
-            assert type(background_data) == type(summary_data)
+            assert type(background_data) == type(summary_data)  # noqa: E721
         else:
             assert summary_data.data.shape[0] == n_background_samples
             assert isinstance(summary_data, shap_utils.Data)
@@ -1305,7 +1314,7 @@ def test_explain_tree(caplog, monkeypatch, mock_tree_shap_explainer, data_type, 
     # TODO: @janis: let's do path.multiple or something like that
     with unittest.mock.patch.object(explainer, '_check_interactions'):
         with unittest.mock.patch.object(explainer, '_check_explainer_setup'):
-            with unittest.mock.patch.object(explainer, 'build_explanation'):
+            with unittest.mock.patch.object(explainer, '_build_explanation'):
 
                 # explain some instances
                 explainer.explain(
@@ -1320,11 +1329,11 @@ def test_explain_tree(caplog, monkeypatch, mock_tree_shap_explainer, data_type, 
                     explainer._check_explainer_setup.assert_not_called()
                     explainer._check_interactions.assert_called_with(False, background_data, None)
                 else:
-                    explainer._check_interactions.asert_not_called()
+                    explainer._check_interactions.assert_not_called()
                     explainer._check_explainer_setup.assert_called_with(background_data, explainer.model_output, None)
 
-                explainer.build_explanation.assert_called_once()
-                build_args = explainer.build_explanation.call_args
+                explainer._build_explanation.assert_called_once()
+                build_args = explainer._build_explanation.call_args
                 # check shap values and expected value are of the correct data type for all dimensions
                 assert isinstance(build_args[0][1], list)
                 assert isinstance(build_args[0][2], list)
@@ -1445,7 +1454,7 @@ def uncollect_if_test_tree_api(**kwargs):
     data_type = kwargs['data_type']
     interactions = kwargs['interactions']
 
-    # exclude this as the code would raise a value error before calling build_explanation
+    # exclude this as the code would raise a value error before calling _build_explanation
     conditions = [
         labels and model_output != 'log_loss',
         labels and data_type == 'none',

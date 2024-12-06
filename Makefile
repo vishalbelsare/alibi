@@ -1,6 +1,10 @@
+.PHONY: install-dev
+install-dev:
+	pip install -r requirements/dev.txt
+
 .PHONY: install
 install:
-	pip install -e .
+	pip install -e .[all]
 
 .PHONY: test
 test:
@@ -55,3 +59,13 @@ licenses:
 	# check if there has been a change in license information, used in CI
 check_licenses:
 	git --no-pager diff --exit-code ./licenses/license_info.no_versions.csv
+
+.PHONY: repl
+tox-env=default
+repl:
+	env COMMAND="python" tox -e $(tox-env)
+
+.PHONY: test
+test:
+	TF_USE_LEGACY_KERAS=1 pytest -m "tf1" alibi
+	pytest -m "not tf1" alibi

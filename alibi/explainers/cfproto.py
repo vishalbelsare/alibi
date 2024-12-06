@@ -38,7 +38,7 @@ class CounterfactualProto(Explainer, FitMixin):
                  shape: tuple,
                  kappa: float = 0.,
                  beta: float = .1,
-                 feature_range: tuple = (-1e10, 1e10),
+                 feature_range: Tuple[Union[float, np.ndarray], Union[float, np.ndarray]] = (-1e10, 1e10),
                  gamma: float = 0.,
                  ae_model: Optional[tf.keras.Model] = None,
                  enc_model: Optional[tf.keras.Model] = None,
@@ -61,54 +61,53 @@ class CounterfactualProto(Explainer, FitMixin):
         Parameters
         ----------
         predict
-            Keras or TensorFlow model or any other model's prediction function returning class probabilities
+            `tensorflow` model or any other model's prediction function returning class probabilities.
         shape
-            Shape of input data starting with batch size
+            Shape of input data starting with batch size.
         kappa
-            Confidence parameter for the attack loss term
+            Confidence parameter for the attack loss term.
         beta
-            Regularization constant for L1 loss term
+            Regularization constant for L1 loss term.
         feature_range
-            Tuple with min and max ranges to allow for perturbed instances. Min and max ranges can be floats or
-            numpy arrays with dimension (1x nb of features) for feature-wise ranges
+            Tuple with `min` and `max` ranges to allow for perturbed instances. `Min` and `max` ranges can be `float`
+            or `numpy` arrays with dimension (1x nb of features) for feature-wise ranges.
         gamma
-            Regularization constant for optional auto-encoder loss term
+            Regularization constant for optional auto-encoder loss term.
         ae_model
-            Optional auto-encoder model used for loss regularization
+            Optional auto-encoder model used for loss regularization.
         enc_model
-            Optional encoder model used to guide instance perturbations towards a class prototype
+            Optional encoder model used to guide instance perturbations towards a class prototype.
         theta
-            Constant for the prototype search loss term
+            Constant for the prototype search loss term.
         cat_vars
-            Dict with as keys the categorical columns and as values
-            the number of categories per categorical variable.
+            Dict with as keys the categorical columns and as values the number of categories per categorical variable.
         ohe
             Whether the categorical variables are one-hot encoded (OHE) or not. If not OHE, they are
             assumed to have ordinal encodings.
         use_kdtree
-            Whether to use k-d trees for the prototype loss term if no encoder is available
+            Whether to use k-d trees for the prototype loss term if no encoder is available.
         learning_rate_init
-            Initial learning rate of optimizer
+            Initial learning rate of optimizer.
         max_iterations
-            Maximum number of iterations for finding a counterfactual
+            Maximum number of iterations for finding a counterfactual.
         c_init
-            Initial value to scale the attack loss term
+            Initial value to scale the attack loss term.
         c_steps
-            Number of iterations to adjust the constant scaling the attack loss term
+            Number of iterations to adjust the constant scaling the attack loss term.
         eps
-            If numerical gradients are used to compute dL/dx = (dL/dp) * (dp/dx), then eps[0] is used to
-            calculate dL/dp and eps[1] is used for dp/dx. eps[0] and eps[1] can be a combination of float values and
-            numpy arrays. For eps[0], the array dimension should be (1x nb of prediction categories) and for
-            eps[1] it should be (1x nb of features)
+            If numerical gradients are used to compute `dL/dx = (dL/dp) * (dp/dx)`, then `eps[0]` is used to
+            calculate `dL/dp` and `eps[1]` is used for `dp/dx`. `eps[0]` and `eps[1]` can be a combination of `float`
+            values and `numpy` arrays. For `eps[0]`, the array dimension should be (1x nb of prediction categories)
+            and for `eps[1]` it should be (1x nb of features).
         clip
             Tuple with min and max clip ranges for both the numerical gradients and the gradients
-            obtained from the TensorFlow graph
+            obtained from the `tensorflow` graph.
         update_num_grad
-            If numerical gradients are used, they will be updated every update_num_grad iterations
+            If numerical gradients are used, they will be updated every `update_num_grad` iterations.
         write_dir
-            Directory to write tensorboard files to
+            Directory to write `tensorboard` files to.
         sess
-            Optional Tensorflow session that will be used if passed instead of creating or inferring one internally
+            Optional `tensorflow` session that will be used if passed instead of creating or inferring one internally.
         """
         super().__init__(meta=copy.deepcopy(DEFAULT_META_CFP))
         params = locals()
@@ -179,7 +178,9 @@ class CounterfactualProto(Explainer, FitMixin):
         self.max_iterations = max_iterations
         self.c_init = c_init
         self.c_steps = c_steps
-        self.feature_range = feature_range
+        self.feature_range = tuple([(np.ones(shape[1:]) * feature_range[_])[None, :]
+                                    if isinstance(feature_range[_], float) else np.array(feature_range[_])
+                                    for _ in range(2)])
         self.update_num_grad = update_num_grad
         self.eps = eps
         self.clip = clip
@@ -193,7 +194,7 @@ class CounterfactualProto(Explainer, FitMixin):
             self.map_cat_to_num = tf.ragged.constant([np.zeros(v) for _, v in cat_vars.items()])
 
             # define placeholder for mapping which can be fed after the fit step
-            max_key = max(cat_vars)
+            max_key = max(cat_vars, key=cat_vars.get)  # type: ignore[arg-type] # feature with the most categories
             self.max_cat = cat_vars[max_key]
             cat_keys = list(cat_vars.keys())
             n_cat = len(cat_keys)
@@ -443,7 +444,7 @@ class CounterfactualProto(Explainer, FitMixin):
                 adv_to_map
                     Instance to map.
                 to_num
-                    Map from categorical to numerical values if True, vice versa if False.
+                    Map from categorical to numerical values if ``True``, vice versa if ``False``.
 
                 Returns
                 -------
@@ -640,7 +641,7 @@ class CounterfactualProto(Explainer, FitMixin):
             new_vars = [x for x in end_vars if x.name not in start_vars]
 
         # variables to initialize
-        self.setup = []  # type: list
+        self.setup: list = []
         self.setup.append(self.orig.assign(self.assign_orig))
         self.setup.append(self.target.assign(self.assign_target))
         self.setup.append(self.const.assign(self.assign_const))
@@ -679,21 +680,21 @@ class CounterfactualProto(Explainer, FitMixin):
         trustscore_kwargs
             Optional arguments to initialize the trust scores method.
         d_type
-            Pairwise distance metric used for categorical variables. Currently, 'abdm', 'mvdm' and 'abdm-mvdm'
-            are supported. 'abdm' infers context from the other variables while 'mvdm' uses the model predictions.
-            'abdm-mvdm' is a weighted combination of the two metrics.
+            Pairwise distance metric used for categorical variables. Currently, ``'abdm'``, ``'mvdm'`` and
+            ``'abdm-mvdm'`` are supported. ``'abdm'`` infers context from the other variables while ``'mvdm'`` uses
+            the model predictions. ``'abdm-mvdm'`` is a weighted combination of the two metrics.
         w
-            Weight on 'abdm' (between 0. and 1.) distance if d_type equals 'abdm-mvdm'.
+            Weight on ``'abdm'`` (between 0. and 1.) distance if `d_type` equals ``'abdm-mvdm'``.
         disc_perc
-            List with percentiles used in binning of numerical features used for the 'abdm'
-            and 'abdm-mvdm' pairwise distance measures.
+            List with percentiles used in binning of numerical features used for the ``'abdm'``
+            and ``'abdm-mvdm'`` pairwise distance measures.
         standardize_cat_vars
-            Standardize numerical values of categorical variables if True.
+            Standardize numerical values of categorical variables if ``True``.
         smooth
-            Smoothing exponent between 0 and 1 for the distances. Lower values of l will smooth the difference in
+            Smoothing exponent between 0 and 1 for the distances. Lower values will smooth the difference in
             distance metric between different features.
         center
-            Whether to center the scaled distance measures. If False, the min distance for each feature
+            Whether to center the scaled distance measures. If ``False``, the min distance for each feature
             except for the feature with the highest raw max distance will be the lower bound of the
             feature range, but the upper bound will be below the max feature range.
         update_feature_range
@@ -712,7 +713,7 @@ class CounterfactualProto(Explainer, FitMixin):
         else:
             preds = np.argmax(self.predict(train_data), axis=1)
 
-        self.cat_vars_ord = dict()  # type: dict
+        self.cat_vars_ord: dict = dict()
         if self.is_cat:  # compute distance metrics for categorical variables
 
             if self.ohe:  # convert OHE to ordinal encoding
@@ -741,7 +742,7 @@ class CounterfactualProto(Explainer, FitMixin):
             if d_type == 'abdm':
                 d_pair = abdm(train_data_bin, self.cat_vars_ord, cat_vars_bin)
             elif d_type == 'mvdm':
-                d_pair = mvdm(train_data_ord, preds, self.cat_vars_ord, alpha=1)  # type: ignore
+                d_pair = mvdm(train_data_ord, preds, self.cat_vars_ord, alpha=1)
 
             # combined distance measure
             if d_type == 'abdm-mvdm':
@@ -751,23 +752,23 @@ class CounterfactualProto(Explainer, FitMixin):
 
                 # pairwise distances
                 d_abdm = abdm(train_data_bin, self.cat_vars_ord, cat_vars_bin)
-                d_mvdm = mvdm(train_data_ord, preds, self.cat_vars_ord, alpha=1)  # type: ignore
+                d_mvdm = mvdm(train_data_ord, preds, self.cat_vars_ord, alpha=1)
 
                 # multidim scaled distances
                 d_abs_abdm, _ = multidim_scaling(d_abdm, n_components=2, use_metric=True,
-                                                 feature_range=self.feature_range,
+                                                 feature_range=self.feature_range,  # type: ignore[arg-type]
                                                  standardize_cat_vars=standardize_cat_vars,
                                                  smooth=smooth, center=center,
                                                  update_feature_range=False)
 
                 d_abs_mvdm, _ = multidim_scaling(d_mvdm, n_components=2, use_metric=True,
-                                                 feature_range=self.feature_range,
+                                                 feature_range=self.feature_range,  # type: ignore[arg-type]
                                                  standardize_cat_vars=standardize_cat_vars,
                                                  smooth=smooth, center=center,
                                                  update_feature_range=False)
 
                 # combine abdm and mvdm
-                self.d_abs = {}  # type: Dict
+                self.d_abs: Dict = {}
                 new_feature_range = tuple([f.copy() for f in self.feature_range])
                 for k, v in d_abs_abdm.items():
                     self.d_abs[k] = v * w + d_abs_mvdm[k] * (1 - w)
@@ -780,13 +781,13 @@ class CounterfactualProto(Explainer, FitMixin):
                     self.feature_range = new_feature_range
             else:  # apply multidimensional scaling for the abdm or mvdm distances
                 self.d_abs, self.feature_range = multidim_scaling(d_pair, n_components=2, use_metric=True,
-                                                                  feature_range=self.feature_range,
+                                                                  feature_range=self.feature_range,  # type: ignore
                                                                   standardize_cat_vars=standardize_cat_vars,
                                                                   smooth=smooth, center=center,
                                                                   update_feature_range=update_feature_range)
 
             # create array used for ragged tensor placeholder
-            self.d_abs_ragged = []  # type: Any
+            self.d_abs_ragged: Any = []
             for _, v in self.d_abs.items():
                 n_pad = self.max_cat - len(v)
                 v_pad = np.pad(v, (0, n_pad), 'constant')
@@ -795,8 +796,8 @@ class CounterfactualProto(Explainer, FitMixin):
 
         if self.enc_model:
             enc_data = self.enc.predict(train_data)  # type: ignore[union-attr]
-            self.class_proto = {}  # type: dict
-            self.class_enc = {}  # type: dict
+            self.class_proto: dict = {}
+            self.class_enc: dict = {}
             for i in range(self.classes):
                 idx = np.where(preds == i)[0]
                 self.class_proto[i] = np.expand_dims(np.mean(enc_data[idx], axis=0), axis=0)
@@ -809,7 +810,7 @@ class CounterfactualProto(Explainer, FitMixin):
                 ts = TrustScore()
             if self.is_cat:  # map categorical to numerical data
                 train_data = ord_to_num(train_data_ord, self.d_abs)
-            ts.fit(train_data, preds, classes=self.classes)  # type: ignore
+            ts.fit(train_data, preds, classes=self.classes)
             self.kdtrees = ts.kdtrees
             self.X_by_class = ts.X_kdtree
 
@@ -822,9 +823,9 @@ class CounterfactualProto(Explainer, FitMixin):
         Parameters
         ----------
         pred_proba
-            Prediction probabilities of an instance
+            Prediction probabilities of an instance.
         Y
-            One-hot representation of instance labels
+            One-hot representation of instance labels.
 
         Returns
         -------
@@ -844,14 +845,14 @@ class CounterfactualProto(Explainer, FitMixin):
                       cat_vars_ord: dict) -> np.ndarray:
         """
         Compute numerical gradients of the attack loss term:
-        dL/dx = (dL/dP)*(dP/dx) with L = loss_attack_s; P = predict; x = adv_s
+        `dL/dx = (dL/dP)*(dP/dx)` with `L = loss_attack_s; P = predict; x = adv_s`.
 
         Parameters
         ----------
         X
-            Instance around which gradient is evaluated
+            Instance around which gradient is evaluated.
         Y
-            One-hot representation of instance labels
+            One-hot representation of instance labels.
         grads_shape
             Shape of gradients.
         cat_vars_ord
@@ -917,17 +918,17 @@ class CounterfactualProto(Explainer, FitMixin):
         Parameters
         ----------
         X
-            Instance to encode and calculate distance metrics for
+            Instance to encode and calculate distance metrics for.
         adv_class
-            Predicted class on the perturbed instance
+            Predicted class on the perturbed instance.
         orig_class
-            Predicted class on the original instance
+            Predicted class on the original instance.
         eps
-            Small number to avoid dividing by 0
+            Small number to avoid dividing by 0.
 
         Returns
         -------
-        Ratio between the distance to the prototype of the predicted class for the original instance and
+        Ratio between the distance to the prototype of the predicted class for the original instance and \
         the prototype of the predicted class for the perturbed instance.
         """
         if self.enc_model:
@@ -945,29 +946,29 @@ class CounterfactualProto(Explainer, FitMixin):
             dist_orig = self.kdtrees[orig_class].query(X, k=1)[0]
         else:
             logger.warning('Need either an encoder or the k-d trees enabled to compute distance scores.')
-        return dist_orig / (dist_adv + eps)
+        return dist_orig / (dist_adv + eps)  # type: ignore[return-value]
 
     def attack(self, X: np.ndarray, Y: np.ndarray, target_class: Optional[list] = None, k: Optional[int] = None,
                k_type: str = 'mean', threshold: float = 0., verbose: bool = False, print_every: int = 100,
                log_every: int = 100) -> Tuple[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         """
-        Find a counterfactual (CF) for instance X using a fast iterative shrinkage-thresholding algorithm (FISTA).
+        Find a counterfactual (CF) for instance `X` using a fast iterative shrinkage-thresholding algorithm (FISTA).
 
         Parameters
         ----------
         X
-            Instance to attack
+            Instance to attack.
         Y
-            Labels for X as one-hot-encoding
+            Labels for `X` as one-hot-encoding.
         target_class
-            List with target classes used to find closest prototype. If None, the nearest prototype
+            List with target classes used to find closest prototype. If ``None``, the nearest prototype
             except for the predict class on the instance is used.
         k
             Number of nearest instances used to define the prototype for a class. Defaults to using all
             instances belonging to the class if an encoder is used and to 1 for k-d trees.
         k_type
-            Use either the average encoding of the k nearest instances in a class (k_type='mean') or
-            the k-nearest encoding in the class (k_type='point') to define the prototype of that class.
+            Use either the average encoding of the k nearest instances in a class (``k_type='mean'``) or
+            the k-nearest encoding in the class (``k_type='point'``) to define the prototype of that class.
             Only relevant if an encoder is used to define the prototypes.
         threshold
             Threshold level for the ratio between the distance of the counterfactual to the prototype of the
@@ -975,11 +976,11 @@ class CounterfactualProto(Explainer, FitMixin):
             for the counterfactual. If the trust score is below the threshold, the proposed counterfactual does
             not meet the requirements.
         verbose
-            Print intermediate results of optimization if True
+            Print intermediate results of optimization if ``True``.
         print_every
-            Print frequency if verbose is True
+            Print frequency if verbose is ``True``.
         log_every
-            Tensorboard log frequency if write directory is specified
+            `tensorboard` log frequency if write directory is specified.
 
         Returns
         -------
@@ -996,9 +997,9 @@ class CounterfactualProto(Explainer, FitMixin):
             Parameters
             ----------
             x
-                Predicted class probabilities or labels
+                Predicted class probabilities or labels.
             y
-                Target or predicted labels
+                Target or predicted labels.
 
             Returns
             -------
@@ -1006,8 +1007,8 @@ class CounterfactualProto(Explainer, FitMixin):
             """
             if not isinstance(x, (float, int, np.int64)):
                 x = np.copy(x)
-                x[y] += self.kappa  # type: ignore
-                x = np.argmax(x)  # type: ignore
+                x[y] += self.kappa
+                x = np.argmax(x)  # type: ignore[assignment]
             return x != y
 
         # define target classes for prototype if not specified yet
@@ -1060,7 +1061,7 @@ class CounterfactualProto(Explainer, FitMixin):
                 self.class_proto[c] = self.X_by_class[c][idx_c[0][-1]].reshape(1, -1)
 
         if self.enc_or_kdtree:
-            self.id_proto = min(dist_proto)
+            self.id_proto = min(dist_proto, key=dist_proto.get)  # type: ignore[arg-type]
             proto_val = self.class_proto[self.id_proto]
             if verbose:
                 print('Prototype class: {}'.format(self.id_proto))
@@ -1082,7 +1083,7 @@ class CounterfactualProto(Explainer, FitMixin):
         overall_best_grad = (np.zeros(self.shape), np.zeros(self.shape))
 
         # keep track of counterfactual evolution
-        self.cf_global = {i: [] for i in range(self.c_steps)}  # type: dict
+        self.cf_global: dict = {i: [] for i in range(self.c_steps)}
 
         # iterate over nb of updates for 'c'
         for _ in range(self.c_steps):
@@ -1105,7 +1106,8 @@ class CounterfactualProto(Explainer, FitMixin):
                 feed_dict[self.assign_map] = self.d_abs_ragged
             self.sess.run(self.setup, feed_dict=feed_dict)
 
-            X_der_batch, X_der_batch_s = [], []  # type: Any, Any
+            X_der_batch: Any = []
+            X_der_batch_s: Any = []
 
             for i in range(self.max_iterations):
 
@@ -1129,8 +1131,8 @@ class CounterfactualProto(Explainer, FitMixin):
                         grads_num_s = self.get_gradients(X_der_batch_s, Y, cat_vars_ord=self.cat_vars_ord,
                                                          grads_shape=pert_shape[1:]) * c
                         # clip gradients
-                        grads_num = np.clip(grads_num, self.clip[0], self.clip[1])  # type: ignore
-                        grads_num_s = np.clip(grads_num_s, self.clip[0], self.clip[1])  # type: ignore
+                        grads_num = np.clip(grads_num, self.clip[0], self.clip[1])
+                        grads_num_s = np.clip(grads_num_s, self.clip[0], self.clip[1])
                         X_der_batch, X_der_batch_s = [], []
 
                 # compute and clip gradients defined in graph
@@ -1200,12 +1202,12 @@ class CounterfactualProto(Explainer, FitMixin):
                                                                                       nontarget_proba_max))
                     print('Gradient graph min/max: {:.3f}/{:.3f}'.format(grads_graph.min(), grads_graph.max()))
                     print('Gradient graph mean/abs mean: {:.3f}/{:.3f}'
-                          .format(np.mean(grads_graph), np.mean(np.abs(grads_graph))))  # type: ignore
+                          .format(np.mean(grads_graph), np.mean(np.abs(grads_graph))))
                     if not self.model:
                         print('Gradient numerical attack min/max: {:.3f}/{:.3f}'
-                              .format(grads_num.min(), grads_num.max()))  # type: ignore
-                        print('Gradient numerical mean/abs mean: {:.3f}/{:.3f}'
-                              .format(np.mean(grads_num), np.mean(np.abs(grads_num))))  # type: ignore
+                              .format(grads_num.min(), grads_num.max()))
+                        print('Gradient numerical mean/abs mean: {:.3f}/{:.3f}'  # type: ignore[str-format]
+                              .format(np.mean(grads_num), np.mean(np.abs(grads_num))))
                     sys.stdout.flush()
 
                 # update best perturbation (distance) and class probabilities
@@ -1287,18 +1289,18 @@ class CounterfactualProto(Explainer, FitMixin):
         Parameters
         ----------
         X
-            Instances to attack
+            Instances to attack.
         Y
-            Labels for X as one-hot-encoding
+            Labels for `X` as one-hot-encoding.
         target_class
-            List with target classes used to find closest prototype. If None, the nearest prototype
+            List with target classes used to find closest prototype. If ``None``, the nearest prototype
             except for the predict class on the instance is used.
         k
             Number of nearest instances used to define the prototype for a class. Defaults to using all
             instances belonging to the class if an encoder is used and to 1 for k-d trees.
         k_type
-            Use either the average encoding of the k nearest instances in a class (k_type='mean') or
-            the k-nearest encoding in the class (k_type='point') to define the prototype of that class.
+            Use either the average encoding of the `k` nearest instances in a class (``k_type='mean'``) or
+            the k-nearest encoding in the class (``k_type='point'``) to define the prototype of that class.
             Only relevant if an encoder is used to define the prototypes.
         threshold
             Threshold level for the ratio between the distance of the counterfactual to the prototype of the
@@ -1306,16 +1308,20 @@ class CounterfactualProto(Explainer, FitMixin):
             for the counterfactual. If the trust score is below the threshold, the proposed counterfactual does
             not meet the requirements.
         verbose
-            Print intermediate results of optimization if True
+            Print intermediate results of optimization if ``True``.
         print_every
-            Print frequency if verbose is True
+            Print frequency if verbose is ``True``.
         log_every
-            Tensorboard log frequency if write directory is specified
+            `tensorboard` log frequency if write directory is specified
 
         Returns
         -------
         explanation
             `Explanation` object containing the counterfactual with additional metadata as attributes.
+            See usage at `CFProto examples`_ for details.
+
+            .. _CFProto examples:
+                https://docs.seldon.io/projects/alibi/en/stable/methods/CFProto.html
         """
         # get params for storage in meta
         params = locals()
@@ -1378,4 +1384,12 @@ class CounterfactualProto(Explainer, FitMixin):
         return explanation
 
     def reset_predictor(self, predictor: Union[Callable, tf.keras.Model]) -> None:
+        """
+        Resets the predictor function/model.
+
+        Parameters
+        ----------
+        predictor
+            New predictor function/model.
+        """
         raise NotImplementedError('Resetting a predictor is currently not supported')

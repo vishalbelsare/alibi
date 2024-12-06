@@ -27,6 +27,9 @@ class Actor(keras.Model):
             Output dimension
         """
         super().__init__(**kwargs)
+        self.hidden_dim = hidden_dim
+        self.output_dim = output_dim
+
         self.fc1 = keras.layers.Dense(hidden_dim)
         self.ln1 = keras.layers.LayerNormalization()
         self.fc2 = keras.layers.Dense(hidden_dim)
@@ -34,10 +37,42 @@ class Actor(keras.Model):
         self.fc3 = keras.layers.Dense(output_dim)
 
     def call(self, x: tf.Tensor, **kwargs) -> tf.Tensor:
+        """
+        Forward pass.
+
+        Parameters
+        ----------
+        x
+            Input tensor.
+        **kwargs
+            Other arguments. Not used.
+
+        Returns
+        -------
+        Continuous action.
+        """
         x = tf.nn.relu(self.ln1(self.fc1(x)))
         x = tf.nn.relu(self.ln2(self.fc2(x)))
         x = tf.nn.tanh(self.fc3(x))
         return x
+
+    def get_config(self):
+        """
+        Returns the configuration of the model for serialization.
+        """
+        config = super().get_config()
+        config.update({
+            "hidden_dim": self.hidden_dim,
+            "output_dim": self.output_dim
+        })
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        """
+        Creates the model from its configuration.
+        """
+        return cls(**config)
 
 
 class Critic(keras.Model):
@@ -51,10 +86,14 @@ class Critic(keras.Model):
         """
         Constructor.
 
+        Parameters
+        ----------
         hidden_dim
             Hidden dimension.
         """
         super().__init__(**kwargs)
+        self.hidden_dim = hidden_dim
+
         self.fc1 = keras.layers.Dense(hidden_dim)
         self.ln1 = keras.layers.LayerNormalization()
         self.fc2 = keras.layers.Dense(hidden_dim)
@@ -62,7 +101,36 @@ class Critic(keras.Model):
         self.fc3 = keras.layers.Dense(1)
 
     def call(self, x: tf.Tensor, **kwargs) -> tf.Tensor:
+        """
+        Forward pass.
+
+        Parameters
+        ----------
+        x
+            Input tensor.
+
+        Returns
+        -------
+        Critic value.
+        """
         x = tf.nn.relu(self.ln1(self.fc1(x)))
         x = tf.nn.relu(self.ln2(self.fc2(x)))
         x = self.fc3(x)
         return x
+
+    def get_config(self):
+        """
+        Returns the configuration of the model for serialization.
+        """
+        config = super().get_config()
+        config.update({
+            "hidden_dim": self.hidden_dim,
+        })
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        """
+        Creates the model from its configuration.
+        """
+        return cls(**config)

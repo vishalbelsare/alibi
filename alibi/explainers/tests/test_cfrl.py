@@ -1,21 +1,23 @@
+from typing import Union, List
+
 import pytest
 from pytest_lazyfixture import lazy_fixture
 
 import numpy as np
 from numpy.testing import assert_allclose
-from typing import Union, List
 
 import tensorflow as tf
 import tensorflow.keras as keras
+
 from alibi.explainers import CounterfactualRLTabular
 from alibi.explainers.backends.cfrl_base import get_hard_distribution
-from alibi.explainers.backends.cfrl_tabular import get_he_preprocessor, split_ohe, get_numerical_conditional_vector,\
-    get_categorical_conditional_vector, get_statistics, get_conditional_vector, sample
+from alibi.explainers.backends.cfrl_tabular import get_he_preprocessor, split_ohe, \
+    get_numerical_conditional_vector, get_categorical_conditional_vector, get_statistics, get_conditional_vector, sample
 
 
 @pytest.mark.parametrize('dataset', [lazy_fixture('iris_data'),
                                      lazy_fixture('adult_data'),
-                                     lazy_fixture('boston_data')])
+                                     lazy_fixture('diabetes_data')])
 def test_he_preprocessor(dataset):
     """ Test the heterogeneous preprocessor and inverse preprocessor. """
     # Unpack dataset.
@@ -41,7 +43,7 @@ def test_he_preprocessor(dataset):
 
 @pytest.mark.parametrize('dataset', [lazy_fixture("iris_data"),
                                      lazy_fixture("adult_data"),
-                                     lazy_fixture("boston_data")])
+                                     lazy_fixture("diabetes_data")])
 def test_split_ohe(dataset):
     """ Test the one-hot encoding splitting of a dataset. """
 
@@ -71,7 +73,7 @@ def test_split_ohe(dataset):
 
 @pytest.mark.parametrize('dataset', [lazy_fixture("iris_data"),
                                      lazy_fixture("adult_data"),
-                                     lazy_fixture("boston_data")])
+                                     lazy_fixture("diabetes_data")])
 def test_get_numerical_condition(dataset):
     """ Test the training numerical conditional generator. """
 
@@ -116,7 +118,7 @@ def test_get_numerical_condition(dataset):
 
 @pytest.mark.parametrize('dataset', [lazy_fixture("iris_data"),
                                      lazy_fixture("adult_data"),
-                                     lazy_fixture("boston_data")])
+                                     lazy_fixture("diabetes_data")])
 def test_get_categorical_condition(dataset):
     """ Test the training categorical conditional generator. """
 
@@ -161,7 +163,7 @@ def test_get_categorical_condition(dataset):
 @pytest.mark.parametrize('seed', [0, 1, 2, 3])
 @pytest.mark.parametrize('dataset', [lazy_fixture("iris_data"),
                                      lazy_fixture("adult_data"),
-                                     lazy_fixture("boston_data")])
+                                     lazy_fixture("diabetes_data")])
 def test_sample(dataset, seed):
     """ Test sampling reconstruction. """
 
@@ -260,8 +262,8 @@ def tf_keras_iris_explainer(models, iris_data, rf_classifier):
     ])
 
     # need to define a wrapper for the decoder to return a list of tensors
-    class DecoderList(tf.keras.Model):
-        def __init__(self, decoder: tf.keras.Model, **kwargs):
+    class DecoderList(keras.Model):
+        def __init__(self, decoder: keras.Model, **kwargs):
             super().__init__(**kwargs)
             self.decoder = decoder
 
@@ -295,11 +297,20 @@ def tf_keras_iris_explainer(models, iris_data, rf_classifier):
     return explainer
 
 
-@pytest.mark.parametrize('models', [('iris-ae-tf2.2.0', 'iris-enc-tf2.2.0')], ids='model={}'.format, indirect=True)
-@pytest.mark.parametrize('rf_classifier',
-                         [lazy_fixture('iris_data')],
-                         indirect=True,
-                         ids='clf=rf_{}'.format)
+@pytest.mark.parametrize(
+    'models',
+    [
+        ('iris-ae-tf2.18.0.keras', 'iris-enc-tf2.18.0.keras')
+    ],
+    ids='model={}'.format,
+    indirect=True
+)
+@pytest.mark.parametrize(
+    'rf_classifier',
+    [lazy_fixture('iris_data')],
+    indirect=True,
+    ids='clf=rf_{}'.format
+)
 def test_explainer(tf_keras_iris_explainer, iris_data):
     explainer = tf_keras_iris_explainer
 
@@ -317,7 +328,7 @@ def test_explainer(tf_keras_iris_explainer, iris_data):
     # Fit the explainer
     explainer.fit(X=iris_data["X_train"])
 
-    # Construct explanation object.
+    # # Construct explanation object.
     explainer.explain(X=iris_data["X_test"], Y_t=np.array([2]), C=None)
 
 

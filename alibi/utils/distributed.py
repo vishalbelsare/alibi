@@ -5,50 +5,34 @@ from typing import Any, Callable, Dict, Generator, List, Optional, Tuple, Union
 
 import numpy as np
 from scipy import sparse
+import ray
+
 
 logger = logging.getLogger(__name__)
-
-
-def check_ray() -> bool:
-    """
-    Checks if ray is installed.
-
-    Returns
-    -------
-        A bool indicating whether ray is installed or not.
-    """
-
-    import importlib
-    spec = importlib.util.find_spec('ray')  # type: ignore
-    if spec:
-        return True
-    return False
-
-
-RAY_INSTALLED = check_ray()
 
 
 class ActorPool(object):
     # TODO: JANIS: IF YOU DECIDE TO TAKE A DEPENDENCY ON RAY CORE, THEN THIS CLASS SHOULD INHERIT FROM
     #  RAY.UTIL.ACTORPOOL, OVERRIDE MAP AND MAP_UNORDERED AND ADD _CHUNK STATIC METHOD.
 
-    if RAY_INSTALLED:
-        import ray
-        ray = ray  # module as a static variable
-
     def __init__(self, actors):
         """
-        Taken fom the ray repository: https://github.com/ray-project/ray/pull/5945
-        Create an Actor pool from a list of existing actors.
-        An actor pool is a utility class similar to multiprocessing.Pool that
-        lets you schedule Ray tasks over a fixed pool of actors.
-        Arguments:
-            actors (list): List of Ray actor handles to use in this pool.
-        Examples:
-            >>> a1, a2 = Actor.remote(), Actor.remote()
-            >>> pool = ActorPool([a1, a2])
-            >>> print(pool.map(lambda a, v: a.double.remote(v), [1, 2, 3, 4]))
-            [2, 4, 6, 8]
+        Taken fom the `ray` repository: https://github.com/ray-project/ray/pull/5945 .
+        Create an actor pool from a list of existing actors.
+        An actor pool is a utility class similar to `multiprocessing.Pool` that
+        lets you schedule `ray` tasks over a fixed pool of actors.
+
+        Parameters
+        ----------
+        actors
+            List of `ray` actor handles to use in this pool.
+
+        Examples
+        ---------
+        >>> a1, a2 = Actor.remote(), Actor.remote()
+        >>> pool = ActorPool([a1, a2])
+        >>> print(pool.map(lambda a, v: a.double.remote(v), [1, 2, 3, 4]))
+        [2, 4, 6, 8]
         """
         self._idle_actors = list(actors)
         self._future_to_actor = {}
@@ -58,29 +42,29 @@ class ActorPool(object):
         self._pending_submits = []
 
     def map(self, fn, values, chunksize=1):
-        """Apply the given function in parallel over the actors and values. This returns an ordered iterator that will
-        return results of the map as they finish. Note that you must iterate over the iterator to force the computation
-        to finish.
+        """Apply the given function in parallel over the `actors` and `values`. This returns an ordered iterator
+        that will return results of the map as they finish. Note that you must iterate over the iterator to force
+        the computation to finish.
 
         Parameters
         ----------
-        fn (func)
-            Function that takes (actor, value) as argument and returns an ObjectID computing the result over the value.
-            The actor will be considered busy until the ObjectID completes.
-        values (list)
-            List of values that fn(actor, value) should be applied to.
-        chunksize (int)
-            splits the list of values to be submitted to the parallel process into sublists of size chunksize or less
+        fn : Callable
+            Function that takes `(actor, value)` as argument and returns an `ObjectID` computing the result over
+            the `value`. The `actor` will be considered busy until the `ObjectID` completes.
+        values : list
+            List of values that `fn(actor, value)` should be applied to.
+        chunksize : int
+            Splits the list of values to be submitted to the parallel process into sublists of size chunksize or less.
 
         Returns
         -------
-            Iterator over results from applying fn to the actors and values.
+        Iterator over results from applying `fn` to the `actors` and `values`.
 
         Examples
         --------
-            >>> pool = ActorPool(...)
-            >>> print(pool.map(lambda a, v: a.double.remote(v), [1, 2, 3, 4]))
-            [2, 4, 6, 8]
+        >>> pool = ActorPool(...)
+        >>> print(pool.map(lambda a, v: a.double.remote(v), [1, 2, 3, 4]))
+        [2, 4, 6, 8]
         """
 
         values = self._chunk(values, chunksize=chunksize)
@@ -91,29 +75,31 @@ class ActorPool(object):
             yield self.get_next()
 
     def map_unordered(self, fn, values, chunksize=1):
-        """Similar to map(), but returning an unordered iterator. This returns an unordered iterator that will
-        return results of the map as they finish. This can be more efficient that map() if some results take longer to
-        compute than others.
+        """
+        Similar to :py:meth:`alibi.utils.distributed.ActorPool.map`, but returning an unordered iterator.
+        This returns an unordered iterator that will return results of the map as they finish. This can be more
+        efficient that :py:meth:`alibi.utils.distributed.ActorPool.map` if some results take longer to compute
+        than others.
 
         Parameters
         ----------
-        fn (func)
-            Function that takes (actor, value) as argument and returns an ObjectID computing the result over the value.
-            The actor will be considered busy until the ObjectID completes.
-        values (list)
-            List of values that fn(actor, value) should be applied to.
-        chunksize (int)
-            splits the list of values to be submitted to the parallel process into sublists of size chunksize or less
+        fn : Callable
+            Function that takes `(actor, value)` as argument and returns an `ObjectID` computing the result over
+            the `value`. The `actor` will be considered busy until the `ObjectID` completes.
+        values : list
+            List of values that `fn(actor, value)` should be applied to.
+        chunksize : int
+            Splits the list of values to be submitted to the parallel process into sublists of size chunksize or less.
 
         Returns
         -------
-            Iterator over results from applying fn to the actors and values.
+        Iterator over results from applying `fn` to the `actors` and `values`.
 
         Examples
         --------
-            >>> pool = ActorPool(...)
-            >>> print(pool.map(lambda a, v: a.double.remote(v), [1, 2, 3, 4]))
-            [6, 2, 4, 8]
+        >>> pool = ActorPool(...)
+        >>> print(pool.map(lambda a, v: a.double.remote(v), [1, 2, 3, 4]))
+        [6, 2, 4, 8]
         """
 
         values = self._chunk(values, chunksize=chunksize)
@@ -123,24 +109,28 @@ class ActorPool(object):
         while self.has_next():
             yield self.get_next_unordered()
 
-    def submit(self, fn, value):
-        """Schedule a single task to run in the pool. This has the same argument semantics as map(), but takes on a
-        single value instead of a list of values. The result can be retrieved using get_next() / get_next_unordered().
+    def submit(self, fn: Callable, value: object):
+        """
+        Schedule a single task to run in the pool. This has the same argument semantics as
+        :py:meth:`alibi.utils.distributed.ActorPool.map`, but takes on a single value instead of a list of values.
+        The result can be retrieved using :py:meth:`alibi.utils.distributed.ActorPool.get_next()` /
+        :py:meth:`alibi.utils.distributed.ActorPool.get_next_unordered()`.
 
         Parameters
         ----------
-        fn (func)
-            Function that takes (actor, value) as argument and returns an ObjectID computing the result over the value.
-            The actor will be considered busy until the ObjectID completes.
-        value (object): Value to compute a result for.
+        fn
+            Function that takes `(actor, value)` as argument and returns an `ObjectID` computing the result over
+            the `value`. The `actor` will be considered busy until the `ObjectID` completes.
+        value
+            Value to compute a result for.
 
         Examples
         --------
-            >>> pool = ActorPool(...)
-            >>> pool.submit(lambda a, v: a.double.remote(v), 1)
-            >>> pool.submit(lambda a, v: a.double.remote(v), 2)
-            >>> print(pool.get_next(), pool.get_next())
-            2, 4
+        >>> pool = ActorPool(...)
+        >>> pool.submit(lambda a, v: a.double.remote(v), 1)
+        >>> pool.submit(lambda a, v: a.double.remote(v), 2)
+        >>> print(pool.get_next(), pool.get_next())
+        2, 4
         """
         if self._idle_actors:
             actor = self._idle_actors.pop()
@@ -152,38 +142,47 @@ class ActorPool(object):
             self._pending_submits.append((fn, value))
 
     def has_next(self):
-        """Returns whether there are any pending results to return.
+        """
+        Returns whether there are any pending results to return.
 
         Returns
         -------
-            `True` if there are any pending results not yet returned.
+        ``True`` if there are any pending results not yet returned.
 
         Examples
         --------
-            >>> pool = ActorPool(...)
-            >>> pool.submit(lambda a, v: a.double.remote(v), 1)
-            >>> print(pool.has_next())
-            True
-            >>> print(pool.get_next())
-            2
-            >>> print(pool.has_next())
-            False
+        >>> pool = ActorPool(...)
+        >>> pool.submit(lambda a, v: a.double.remote(v), 1)
+        >>> print(pool.has_next())
+        True
+        >>> print(pool.get_next())
+        2
+        >>> print(pool.has_next())
+        False
         """
         return bool(self._future_to_actor)
 
     def get_next(self, timeout=None):
-        """Returns the next pending result in order.
-        This returns the next result produced by submit(), blocking for up to
-        the specified timeout until it is available.
-        Returns:
-            The next result.
-        Raises:
-            TimeoutError if the timeout is reached.
-        Examples:
-            >>> pool = ActorPool(...)
-            >>> pool.submit(lambda a, v: a.double.remote(v), 1)
-            >>> print(pool.get_next())
-            2
+        """
+        Returns the next pending result in order.
+        This returns the next result produced by :py:meth:`alibi.utils.distributed.ActorPool.submit`, blocking
+        for up to the specified timeout until it is available.
+
+        Returns
+        -------
+        The next result.
+
+        Raises
+        ------
+        TimeoutError
+            If the timeout is reached.
+
+        Examples
+        ---------
+        >>> pool = ActorPool(...)
+        >>> pool.submit(lambda a, v: a.double.remote(v), 1)
+        >>> print(pool.get_next())
+        2
         """
         if not self.has_next():
             raise StopIteration("No more results to get")
@@ -192,37 +191,43 @@ class ActorPool(object):
                              "get_next_unordered().")
         future = self._index_to_future[self._next_return_index]
         if timeout is not None:
-            res, _ = self.ray.wait([future], timeout=timeout)
+            res, _ = ray.wait([future], timeout=timeout)
             if not res:
                 raise TimeoutError("Timed out waiting for result")
         del self._index_to_future[self._next_return_index]
         self._next_return_index += 1
         i, a = self._future_to_actor.pop(future)
         self._return_actor(a)
-        return self.ray.get(future)
+        return ray.get(future)
 
     def get_next_unordered(self, timeout=None):
-        """Returns any of the next pending results.
-        This returns some result produced by submit(), blocking for up to
-        the specified timeout until it is available. Unlike get_next(), the
-        results are not always returned in same order as submitted, which can
-        improve performance.
-        Returns:
-            The next result.
-        Raises:
-            TimeoutError if the timeout is reached.
-        Examples:
-            >>> pool = ActorPool(...)
-            >>> pool.submit(lambda a, v: a.double.remote(v), 1)
-            >>> pool.submit(lambda a, v: a.double.remote(v), 2)
-            >>> print(pool.get_next_unordered())
-            4
-            >>> print(pool.get_next_unordered())
-            2
+        """
+        Returns any of the next pending results.
+        This returns some result produced by :py:meth:`alibi.utils.distributed.ActorPool.submit()`, blocking for up to
+        the specified timeout until it is available. Unlike :py:meth:`alibi.utils.distributed.ActorPool.get_next()`,
+        the results are not always returned in same order as submitted, which can improve performance.
+
+        Returns
+        -------
+        The next result.
+
+        Raises
+        ------
+        `TimeoutError` if the timeout is reached.
+
+        Examples
+        --------
+        >>> pool = ActorPool(...)
+        >>> pool.submit(lambda a, v: a.double.remote(v), 1)
+        >>> pool.submit(lambda a, v: a.double.remote(v), 2)
+        >>> print(pool.get_next_unordered())
+        4
+        >>> print(pool.get_next_unordered())
+        2
         """
         if not self.has_next():
             raise StopIteration("No more results to get")
-        res, _ = self.ray.wait(
+        res, _ = ray.wait(
             list(self._future_to_actor), num_returns=1, timeout=timeout)
         if res:
             [future] = res
@@ -232,7 +237,7 @@ class ActorPool(object):
         self._return_actor(a)
         del self._index_to_future[i]
         self._next_return_index = max(self._next_return_index, i + 1)
-        return self.ray.get(future)
+        return ray.get(future)
 
     def _return_actor(self, actor):
         self._idle_actors.append(actor)
@@ -255,20 +260,20 @@ def batch(X: np.ndarray, batch_size: Optional[int] = None, n_batches: int = 4) -
     X
         Array to be split.
     batch_size
-        The size of each batch. In particular:
+        The size of each batch. In particular
 
-            - if `batch_size` is not `None`, batches of this size are created. The sizes of the batches created might \
-            vary if the 0-th dimension of `X` is not divisible by `batch_size`. For an array of length `l` that should \
-            be split into `n` sections, it returns `l % n` sub-arrays of size `l//n + 1` and the rest of  `size l//n`
-            
-            - if `batch_size` is `None`, then `X` is split into `n_batches` sub-arrays.
+         - if `batch_size` is not ``None``, batches of this size are created. The sizes of the batches created might \
+        vary if the 0-th dimension of `X` is not divisible by `batch_size`. For an array of length `l` that should \
+        be split into `n` sections, it returns `l % n` sub-arrays of size `l//n + 1` and the rest of  `size l//n`
+        
+         - if `batch_size` is ``None``, then `X` is split into `n_batches` sub-arrays.
             
     n_batches
-        Number of batches in which to split the sub-array. Only used if `batch_size = None`
+        Number of batches in which to split the sub-array. Only used if ``batch_size = None``
 
     Returns
     ------
-        A list of sub-arrays of X.
+    A list of sub-arrays of `X`.
     """  # noqa W605
 
     n_records = X.shape[0]
@@ -296,10 +301,10 @@ def default_target_fcn(actor: Any, instances: tuple, kwargs: Optional[Dict] = No
     Parameters
     ----------
     actor
-        A `ray` actor. This is typically a class decorated with the @ray.remote decorator, that has been subsequently
+        A `ray` actor. This is typically a class decorated with the `@ray.remote decorator`, that has been subsequently
         instantiated using ``cls.remote(*args, **kwargs)``.
     instances
-        A (batch_index, batch) tuple containing the batch of instances to be explained along with a batch index.
+        A `(batch_index, batch)` tuple containing the batch of instances to be explained along with a batch index.
     kwargs
         A list of keyword arguments for the actor `get_explanation` method.
 
@@ -311,7 +316,7 @@ def default_target_fcn(actor: Any, instances: tuple, kwargs: Optional[Dict] = No
     -----
     This function can be customized (e.g., if one does not desire to wrap the explainer such that it has
     `get_explanation` method. The customized function should be called `*_target_fcn` with the wildcard being replaced
-    by the name of the explanation method (e.g., cem, cfproto, etc). The same name should be added to the
+    by the name of the explanation method (e.g., `cem`, `cfproto`, etc). The same name should be added to the
     `distributed_opts` dictionary passed by the user prior to instantiating the `DistributedExplainer`.
 
     """
@@ -333,12 +338,13 @@ def concatenate_minibatches(minibatch_results: Union[List[np.ndarray], List[List
     ----------
     minibatch_results
         Explanations for each minibatch.
+        
     Returns
     -------
-        If the input is ``List[np.ndarray]``, a single numpy array obtained by concatenating `minibatch` results along 
-        the 0th axis. \
-        If the input is ``List[List[np.ndarray]]`` A list of numpy arrays obtained by concatenating arrays in with the 
-        same position in the sublists along the 0th axis.
+    If the input is ``List[np.ndarray]``, a single `numpy` array obtained by concatenating `minibatch` results along \
+    the 0th axis. 
+    If the input is ``List[List[np.ndarray]]`` A list of `numpy` arrays obtained by concatenating arrays in with the \
+    same position in the sublists along the 0th axis.
     """  # noqa W605
 
     if isinstance(minibatch_results[0], np.ndarray):
@@ -369,7 +375,7 @@ def invert_permutation(p: list) -> np.ndarray:
     Parameters
     -----------
     p
-        Some permutation of 0, 1, ..., len(p)-1. Returns an array s, where s[i] gives the index of i in p.
+        Some permutation of `0, 1, ..., len(p)-1`. Returns an array `s`, where `s[i]` gives the index of `i` in `p`.
 
     Returns
     -------
@@ -396,10 +402,9 @@ def order_result(unordered_result: Generator[Tuple[int, Any], None, None]) -> Li
     -------
     A list with re-ordered results.
 
-
     Notes
     -----
-    This should not be used if one wants to take advantage of the results being returned as they  are calculated.
+    This should not be used if one wants to take advantage of the results being returned as they are calculated.
     """
 
     result_order, results = list(zip(*[(idx, res) for idx, res in unordered_result]))
@@ -417,9 +422,6 @@ class DistributedExplainer:
     """
     A class that orchestrates the execution of the execution of a batch of explanations in parallel.
     """
-    if RAY_INSTALLED:
-        import ray
-        ray = ray
 
     concatenate: Callable
 
@@ -437,7 +439,6 @@ class DistributedExplainer:
         
         Parameters
         ----------
-        concatenate_results
         distributed_opts
             A dictionary with the following type (minimal signature)::
 
@@ -447,19 +448,19 @@ class DistributedExplainer:
                     
             The dictionary may contain two additional keys:
                 
-                - ``'actor_cpu_frac'`` (float, <= 1.0, >0.0): This is used to create more than one process on one \
-                CPU/GPU. This may not speed up CPU intensive tasks but it is worth experimenting with when few physical \
-                cores are available. In particular, this is highly useful when the user wants to share a GPU for \
-                multiple tasks, with the caviat that the machine learning framework itself needs to support running \
-                multiple replicas on the same GPU. See the ``ray`` documentation `here_` for details.
+                - ``'actor_cpu_frac'`` : ``(float, <= 1.0, >0.0)`` - This is used to create more than one process \
+                on one CPU/GPU. This may not speed up CPU intensive tasks but it is worth experimenting with when \
+                few physical cores are available. In particular, this is highly useful when the user wants to share \
+                a GPU for multiple tasks, with the caviat that the machine learning framework itself needs to \
+                support running multiple replicas on the same GPU. See the `ray` documentation `here`_ for details.
                 
                 .. _here:
-                   https://docs.ray.io/en/stable/resources.html#fractional-resources
+                   https://docs.ray.io/en/latest/ray-core/scheduling/resources.html#fractional-resource-requirements
                 
-                - ``'algorithm'``: this is specified internally by the caller. It is used in order to register target \
-                function callbacks for the parallel pool These should be implemented in the global scope. \
-                If not specified, its value will be ``'default'``, which will select a default target function which \
-                expects the actor has a `get_explanation` method. 
+                - ``'algorithm'`` : ``str`` - this is specified internally by the caller. It is used in order to \
+                register target function callbacks for the parallel pool These should be implemented in the global \
+                scope. If not specified, its value will be ``'default'``, which will select a default target function \
+                which expects the actor has a `get_explanation` method. 
 
         explainer_type
             Explainer class.
@@ -467,38 +468,39 @@ class DistributedExplainer:
             Positional arguments to explainer constructor.
         explainer_init_kwargs
             Keyword arguments to explainer constructor.
+        concatenate_results
+            If ``True`` concatenates the results. See :py:func:`alibi.utils.distributed.concatenate_minibatches` for
+            more details.
         return_generator
-            If `True` a generator that returns the results in the order the computation finishes is returned when
-            `get_explanation` is called. Otherwise, the order of the results is the same as the order of the minibatches.
+            If ``True`` a generator that returns the results in the order the computation finishes is returned when
+            `get_explanation` is called. Otherwise, the order of the results is the same as the order of the 
+            minibatches.
             
         Notes
         -----
-        When `return_generator=True`, the caller has to take elements from the generator (e.g., by calling `next`) in 
+        When ``return_generator=True``, the caller has to take elements from the generator (e.g., by calling `next`) in 
         order to start computing the results (because the `ray` pool is implemented as a generator).
         """  # noqa W605
-
-        if not RAY_INSTALLED:
-            raise ModuleNotFoundError("Module requires ray to be installed. pip install alibi[ray] ")
 
         self.n_processes = distributed_opts['n_cpus']
         self.batch_size = distributed_opts['batch_size']
         self.return_generator = return_generator
         self.concatenate_results = concatenate_results
         algorithm = distributed_opts.get('algorithm', 'default')
-        if 'algorithm' == 'default':
+        if algorithm == 'default':
             logger.warning(
                 "No algorithm specified in distributed option, default target function will be selected."
             )
         self.target_fcn = default_target_fcn
         # check global scope for any specific target function
         if concatenate_results:
-            self.concatenate = concatenate_minibatches  # type: ignore[assignment]
+            self.concatenate = concatenate_minibatches
         if f"{algorithm}_target_fcn" in globals():
             self.target_fcn = globals()[f"{algorithm}_target_fcn"]
 
-        if not DistributedExplainer.ray.is_initialized():
+        if not ray.is_initialized():
             logger.info(f"Initialising ray on {self.n_processes} processes!")
-            DistributedExplainer.ray.init(num_cpus=self.n_processes)
+            ray.init(num_cpus=self.n_processes)
 
         # a pool is a collection of handles to different processes that can process data points in parallel
         self.pool = self.create_parallel_pool(
@@ -522,7 +524,7 @@ class DistributedExplainer:
 
         Returns
         -------
-            The value of the attribute specified by `item`.
+        The value of the attribute specified by `item`.
 
         Raises
         ------
@@ -532,11 +534,11 @@ class DistributedExplainer:
         Notes
         -----
             1. This method assumes that the actor implements a `return_attribute` method.
-            2. Note that we are indexing the idle actors. This means that if a pool was initialised with 5 actors and 3 \
-            are busy, indexing with index 2 will raise an IndexError.
-            3. The order of _idle_actors constantly changes - an actor is removed from it if there is a task to execute \
-            and appended back when the task is complete. Therefore, indexing at the same position as computation \
-            proceeds will result in retrieving state from different processes.
+            2. Note that we are indexing the idle actors. This means that if a pool was initialised with 5 actors \
+            and 3 are busy, indexing with index 2 will raise an `IndexError`.
+            3. The order of `_idle_actors` constantly changes - an actor is removed from it if there is a task to \
+            execute and appended back when the task is complete. Therefore, indexing at the same position as \
+            computation proceeds will result in retrieving state from different processes.
 
         """  # noqa W605
 
@@ -544,7 +546,7 @@ class DistributedExplainer:
             raise ValueError(f"Index of actor should be less than or equal to {self.n_processes - 1}!")
 
         actor = self.pool._idle_actors[self._actor_index]  # noqa
-        return DistributedExplainer.ray.get(actor.return_attribute.remote(item))
+        return ray.get(actor.return_attribute.remote(item))
 
     @property
     def actor_index(self) -> int:
@@ -562,7 +564,7 @@ class DistributedExplainer:
 
     def set_actor_index(self, value: int):
         """
-        Sets actor index. This is used when the DistributedExplainer is in a separate process because `ray` does not
+        Sets actor index. This is used when the `DistributedExplainer` is in a separate process because `ray` does not
         support calling property setters remotely
         """
         self._actor_index = value
@@ -589,9 +591,9 @@ class DistributedExplainer:
         See constructor documentation.
         """
 
-        handles = [DistributedExplainer.ray.remote(explainer_type) for _ in range(self.n_processes)]
+        handles = [ray.remote(explainer_type) for _ in range(self.n_processes)]
         workers = [handle.remote(*explainer_init_args, **explainer_init_kwargs) for handle in handles]
-        return DistributedExplainer.ray.util.ActorPool(workers)
+        return ray.util.ActorPool(workers)
 
     def get_explanation(self, X: np.ndarray, **kwargs) -> \
             Union[Generator[Tuple[int, Any], None, None], List[Any], Any]:
@@ -602,22 +604,22 @@ class DistributedExplainer:
         ----------
         X
             A batch of instances to be explained. Split into batches according to the settings passed to the constructor.
-        kwargs
+        **kwargs
             Any keyword-arguments for the explainer `explain` method. 
 
         Returns
         --------
-        The explanations are returned as:
+        The explanations are returned as
+    
+         - a generator, if the `return_generator` option is specified. This is used so that the caller can access \
+        the results as they are computed. This is the only case when this method is non-blocking and the caller \
+        needs to call `next` on the generator to trigger the parallel computation.
         
-            - a generator, if the `return_generator` option is specified. This is used so that the caller can access \
-            the results as they are computed. This is the only case when this method is non-blocking and the caller \
-            needs to call `next` on the generator to trigger the parallel computation
-            
-            - a list of objects, whose type depends on the return type of the explainer. This is returned  if no \
-            custom preprocessing function is specified
-            
-            - an object, whose type depends on the return type of the concatenation function return when called with \
-            a list of minibatch results with the same order as the minibatches
+         - a list of objects, whose type depends on the return type of the explainer. This is returned  if no \
+        custom preprocessing function is specified.
+        
+         - an object, whose type depends on the return type of the concatenation function return when called with \
+        a list of minibatch results with the same order as the minibatches.
             
         """  # noqa E501
 
@@ -641,13 +643,9 @@ class DistributedExplainer:
 
 class PoolCollection:
     """
-    A wrapper object that turns a DistributedExplainer into a remote actor. This allows running multiple distributed
+    A wrapper object that turns a `DistributedExplainer` into a remote actor. This allows running multiple distributed
     explainers in parallel.
     """
-
-    if RAY_INSTALLED:
-        import ray
-        ray = ray
 
     def __init__(self,
                  distributed_opts: Dict[str, Any],
@@ -663,11 +661,11 @@ class PoolCollection:
         Parameters
         ----------
         distributed_opts , explainer_type, explainer_init_args, explainer_init_kwargs
-            See DistributedExplainer constructor documentation for explanations. Each entry in the list is a
-            different explainer configuration (e.g., CEM in PN vs PP mode, different background dataset sizes for SHAP,
-            etc).
-        kwargs
-            Any other kwargs, passed to the DistributedExplainer objects.
+            See :py:meth:`alibi.utils.distributed.DistributedExplainer` constructor documentation for explanations. 
+            Each entry in the list is a different explainer configuration (e.g., CEM in PN vs PP mode, different 
+            background dataset sizes for SHAP, etc).
+        **kwargs
+            Any other kwargs, passed to the `DistributedExplainer` objects.
 
         Raises
         ------
@@ -695,9 +693,9 @@ class PoolCollection:
             if actor_cpu_fraction is not None:
                 cpus_per_pool /= actor_cpu_fraction
 
-        if not PoolCollection.ray.is_initialized():
+        if not ray.is_initialized():
             logger.info(f"Initialising ray on {distributed_opts['n_cpus']} CPUs")
-            PoolCollection.ray.init(num_cpus=distributed_opts['n_cpus'])
+            ray.init(num_cpus=distributed_opts['n_cpus'])
 
         opts = copy.deepcopy(distributed_opts)
         opts.update(n_cpus=int(cpus_per_pool))
@@ -737,7 +735,7 @@ class PoolCollection:
             )
 
         actor = self.distributed_explainers[self._remote_explainer_index]  # noqa
-        return PoolCollection.ray.get(actor.return_attribute.remote(item))
+        return ray.get(actor.return_attribute.remote(item))
 
     def __getitem__(self, item: int):
 
@@ -755,16 +753,16 @@ class PoolCollection:
                                  explainer_init_kwargs: List[Dict],
                                  **kwargs):
         """
-        Creates multiple actors for DistributedExplainer so that tasks can be executed in parallel. The actors are
+        Creates multiple actors for `DistributedExplainer` so that tasks can be executed in parallel. The actors are
         initialised with different arguments, so they represent different explainers.
 
         Parameters
         ----------
-        distributed_opts, explainer_type, explainer_init_args, explainer_init_kwargs, kwargs
-            See constructor.
+        distributed_opts, explainer_type, explainer_init_args, explainer_init_kwargs, **kwargs
+            See :py:meth:`alibi.utils.distributed.PoolCollection`.
         """
 
-        explainer_handles = [PoolCollection.ray.remote(DistributedExplainer) for _ in range(len(explainer_init_args))]
+        explainer_handles = [ray.remote(DistributedExplainer) for _ in range(len(explainer_init_args))]
         distributed_explainers = []
         for handle, exp_args, exp_kwargs in zip(explainer_handles, explainer_init_args, explainer_init_kwargs):
             distributed_explainers.append(handle.remote(
@@ -798,11 +796,11 @@ class PoolCollection:
         Raises
         ------
         TypeError
-            If the user sets `return_generator=True` for the DistributedExplainer. This is because generators cannot be
-            pickled so one cannot call `ray.get`.
+            If the user sets ``return_generator=True`` for the DistributedExplainer. This is because generators
+            cannot be pickled so one cannot call `ray.get`.
 
         """
 
-        return PoolCollection.ray.get(
+        return ray.get(
             [explainer.get_explanation.remote(X, **kwargs) for explainer in self.distributed_explainers]
         )

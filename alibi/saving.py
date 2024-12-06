@@ -1,5 +1,6 @@
 import copy
 import json
+import numbers
 import os
 from pathlib import Path
 import sys
@@ -8,18 +9,22 @@ import warnings
 
 import dill
 import numpy as np
-import tensorflow as tf
 
 if TYPE_CHECKING:
+    import torch
+    import tensorflow
     from alibi.api.interfaces import Explainer
+    from alibi.explainers.integrated_gradients import IntegratedGradients
+    from alibi.explainers.shap_wrappers import KernelShap, TreeShap
     from alibi.explainers import (
         AnchorImage,
         AnchorText,
-        IntegratedGradients,
-        KernelShap,
-        TreeShap,
         CounterfactualRL,
-        CounterfactualRLTabular
+        CounterfactualRLTabular,
+        GradientSimilarity
+    )
+    from alibi.prototypes import (
+        ProtoSelect
     )
 
 from alibi.version import __version__
@@ -117,23 +122,32 @@ def _simple_load(path: Union[str, os.PathLike], predictor, meta) -> 'Explainer':
     return explainer
 
 
-def _load_IntegratedGradients(path: Union[str, os.PathLike], predictor: Union[tf.keras.Model],
+def _load_IntegratedGradients(path: Union[str, os.PathLike], predictor: 'Union[tensorflow.keras.Model]',
                               meta: dict) -> 'IntegratedGradients':
-    layer_num = meta['params']['layer']
-    if layer_num == 0:
-        layer = None
-    else:
-        layer = predictor.layers[layer_num]
-
+    from alibi.explainers.integrated_gradients import LayerState
     with open(Path(path, 'explainer.dill'), 'rb') as f:
         explainer = dill.load(f)
+
     explainer.reset_predictor(predictor)
-    explainer.layer = layer
+    layer_meta = meta['params']['layer']
+
+    if layer_meta == LayerState.CALLABLE:
+        explainer.layer = explainer.callable_layer(predictor)
+    elif isinstance(layer_meta, numbers.Integral):
+        explainer.layer = predictor.layers[layer_meta]
 
     return explainer
 
 
 def _save_IntegratedGradients(explainer: 'IntegratedGradients', path: Union[str, os.PathLike]) -> None:
+    from alibi.explainers.integrated_gradients import LayerState
+    from alibi.exceptions import SerializationError
+
+    if explainer.meta['params']['layer'] == LayerState.NON_SERIALIZABLE:
+        raise SerializationError('The layer provided in the explainer initialization cannot be serialized. This is due '
+                                 'to nested layers. To permit the serialization of the explainer, provide the layer as '
+                                 'a callable which returns the layer given the model.')
+
     model = explainer.model
     layer = explainer.layer
     explainer.model = explainer.layer = None
@@ -189,7 +203,7 @@ def _load_AnchorText(path: Union[str, os.PathLike], predictor: Callable, meta: d
         model = spacy.load(Path(path, 'nlp'))
     else:
         # load language model
-        import alibi.utils.lang_model as lang_model
+        import alibi.utils as lang_model
         model_class = explainer.model_class
         model = getattr(lang_model, model_class)(preloading=False)
         model.from_disk(Path(path, 'language_model'))
@@ -228,14 +242,25 @@ def _save_AnchorText(explainer: 'AnchorText', path: Union[str, os.PathLike]) -> 
     explainer.perturbation = perturbation
 
 
+def _save_Shap(explainer: Union['KernelShap', 'TreeShap'], path: Union[str, os.PathLike]) -> None:
+    # set the internal explainer object to avoid saving it. The internal explainer
+    # object is recreated when in the `reset_predictor` function call.
+    _explainer = explainer._explainer
+    explainer._explainer = None
+
+    # simple save which does not save the predictor
+    _simple_save(explainer, path)
+
+    # reset the internal explainer object
+    explainer._explainer = _explainer
+
+
 def _save_KernelShap(explainer: 'KernelShap', path: Union[str, os.PathLike]) -> None:
-    # TODO: save internal shap objects using native pickle?
-    _simple_save(explainer, path)
+    _save_Shap(explainer, path)
 
 
-def _save_TreelShap(explainer: 'TreeShap', path: Union[str, os.PathLike]) -> None:
-    # TODO: save internal shap objects using native pickle?
-    _simple_save(explainer, path)
+def _save_TreeShap(explainer: 'TreeShap', path: Union[str, os.PathLike]) -> None:
+    _save_Shap(explainer, path)
 
 
 def _save_CounterfactualRL(explainer: 'CounterfactualRL', path: Union[str, os.PathLike]) -> None:
@@ -247,7 +272,7 @@ def _save_CounterfactualRL(explainer: 'CounterfactualRL', path: Union[str, os.Pa
     backend = explainer.backend
 
     # define extension
-    ext = ".tf" if explainer.params["backend"] == Framework.TENSORFLOW else ".pth"
+    ext = ".keras" if explainer.params["backend"] == Framework.TENSORFLOW else ".pth"
 
     # save encoder and decoder (autoencoder components)
     encoder = explainer.params["encoder"]
@@ -304,7 +329,7 @@ def _helper_load_CounterfactualRL(path: Union[str, os.PathLike],
                                   explainer):
     # define extension
     from alibi.utils.frameworks import Framework
-    ext = ".tf" if explainer.params["backend"] == Framework.TENSORFLOW else ".pth"
+    ext = ".keras" if explainer.params["backend"] == Framework.TENSORFLOW else ".pth"
 
     # load the encoder and decoder (autoencoder components)
     explainer.params["encoder"] = explainer.backend.load_model(Path(path, "encoder" + ext))
@@ -371,6 +396,35 @@ def _load_CounterfactualRLTabular(path: Union[str, os.PathLike],
 
     # load the rest of the explainer
     return _helper_load_CounterfactualRL(path, predictor, explainer)
+
+
+def _save_SimilarityExplainer(explainer: 'GradientSimilarity', path: Union[str, os.PathLike]) -> None:
+    predictor = explainer.predictor
+    explainer.predictor = None
+
+    with open(Path(path, 'explainer.dill'), 'wb') as f:
+        dill.dump(explainer, f, recurse=True)
+
+    explainer.predictor = predictor
+
+
+def _load_SimilarityExplainer(path: Union[str, os.PathLike],
+                              predictor: 'Union[tensorflow.keras.Model, torch.nn.Module]',
+                              meta: dict) -> 'GradientSimilarity':
+    # load explainer
+    with open(Path(path, "explainer.dill"), "rb") as f:
+        explainer = dill.load(f)
+    explainer.reset_predictor(predictor)
+
+    return explainer
+
+
+def _save_ProtoSelect(path: Union[str, os.PathLike]) -> None:
+    raise NotImplementedError('ProtoSelect saving functionality not implemented.')
+
+
+def _load_ProtoSelect(path: Union[str, os.PathLike], meta: dict) -> 'ProtoSelect':
+    raise NotImplementedError('ProtoSelect loading functionality not implemented.')
 
 
 class NumpyEncoder(json.JSONEncoder):

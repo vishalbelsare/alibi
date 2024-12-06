@@ -5,7 +5,7 @@ import numpy as np
 
 def ohe_to_ord_shape(shape: tuple, cat_vars: Dict[int, int], is_ohe: bool = False) -> tuple:
     """
-    Infer shape of instance if the categorical variables have ordinal instead of on-hot encoding.
+    Infer shape of instance if the categorical variables have ordinal instead of one-hot encoding.
 
     Parameters
     ----------
@@ -38,21 +38,21 @@ def ord_to_num(data: np.ndarray, dist: dict) -> np.ndarray:
     Parameters
     ----------
     data
-        Numpy array with the categorical data.
+        `Numpy` array with the categorical data.
     dist
         Dict with as keys the categorical variables and as values
         the numerical value for each category.
 
     Returns
     -------
-    Numpy array with transformed categorical data into numerical values.
+    `Numpy` array with transformed categorical data into numerical values.
     """
     rng = data.shape[0]
     X = data.astype(np.float32, copy=True)
     for k, v in dist.items():
         cat_col = X[:, k].copy()
         cat_col = np.array([v[int(cat_col[i])] for i in range(rng)])
-        if type(X) == np.matrix:
+        if isinstance(X, np.matrix):
             X[:, k] = cat_col.reshape(-1, 1)
         else:
             X[:, k] = cat_col
@@ -66,14 +66,14 @@ def num_to_ord(data: np.ndarray, dist: dict) -> np.ndarray:
     Parameters
     ----------
     data
-        Numpy array with the numerical data.
+        `Numpy` array with the numerical data.
     dist
         Dict with as keys the categorical variables and as values
         the numerical value for each category.
 
     Returns
     -------
-    Numpy array with transformed numerical data into categories.
+    `Numpy` array with transformed numerical data into categories.
     """
     X = data.copy()
     for k, v in dist.items():
@@ -139,7 +139,7 @@ def ohe_to_ord(X_ohe: np.ndarray, cat_vars_ohe: dict) -> Tuple[np.ndarray, dict]
     """
     n, cols = X_ohe.shape
     ohe_vars_keys = list(cat_vars_ohe.keys())
-    X_list = []  # type: List
+    X_list: List = []
     c = 0
     cat_vars_ord = {}
     while c < cols:

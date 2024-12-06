@@ -2,6 +2,7 @@ import copy
 import logging
 import string
 import warnings
+from enum import Enum
 from typing import Callable, List, Optional, Tuple, Union, cast
 
 import numpy as np
@@ -22,7 +23,7 @@ def _compute_convergence_delta(model: Union[tf.keras.models.Model],
                                start_point: Union[List[np.ndarray], np.ndarray],
                                end_point: Union[List[np.ndarray], np.ndarray],
                                forward_kwargs: Optional[dict],
-                               target: Optional[List[int]],
+                               target: Optional[np.ndarray],
                                _is_list: bool) -> np.ndarray:
     """
     Computes convergence deltas for each data point. Convergence delta measures how close the sum of all attributions
@@ -31,7 +32,7 @@ def _compute_convergence_delta(model: Union[tf.keras.models.Model],
     Parameters
     ----------
     model
-        Tensorflow or keras model.
+        `tensorflow` model.
     input_dtypes
         List with data types of the inputs.
     attributions
@@ -45,11 +46,11 @@ def _compute_convergence_delta(model: Union[tf.keras.models.Model],
     target
         Target for which the gradients are calculated for classification models.
     _is_list
-        Whether the model's input is a list (multiple inputs) or a np array (single input).
+        Whether the model's input is a `list` (multiple inputs) or a `np.narray` (single input).
 
     Returns
     -------
-        Convergence deltas for each data point.
+    Convergence deltas for each data point.
     """
     if forward_kwargs is None:
         forward_kwargs = {}
@@ -98,7 +99,7 @@ def _compute_convergence_delta(model: Union[tf.keras.models.Model],
 def _select_target(preds: tf.Tensor,
                    targets: Union[None, tf.Tensor, np.ndarray, list]) -> tf.Tensor:
     """
-    Select the predictions corresponding to the targets if targets is not None.
+    Select the predictions corresponding to the targets if targets is not ``None``.
 
     Parameters
     ----------
@@ -106,18 +107,23 @@ def _select_target(preds: tf.Tensor,
         Predictions before selection.
     targets
         Targets to select.
+
     Returns
     -------
-        Selected predictions
+    Selected predictions.
 
     """
+    if not isinstance(targets, tf.Tensor):
+        targets = tf.convert_to_tensor(targets)
+
     if targets is not None:
         if isinstance(preds, tf.Tensor):
-            preds = tf.linalg.diag_part(tf.gather(preds, targets, axis=1))
+            preds = tf.gather_nd(preds, tf.expand_dims(targets, axis=1), batch_dims=1)
         else:
             raise NotImplementedError
     else:
         raise ValueError("target cannot be `None` if `model` output dimensions > 1")
+
     return preds
 
 
@@ -126,21 +132,23 @@ def _run_forward(model: Union[tf.keras.models.Model],
                  target: Union[None, tf.Tensor, np.ndarray, list],
                  forward_kwargs: Optional[dict] = None) -> tf.Tensor:
     """
-    Returns the output of the model. If the target is not `None`, only the output for the selected target is returned.
+    Returns the output of the model. If the target is not ``None``, only the output for the selected
+    target is returned.
 
     Parameters
     ----------
     model
-        Tensorflow or keras model.
+        `tensorflow` model.
     x
         Input data point.
     target
         Target for which the gradients are calculated for classification models.
     forward_kwargs
         Input keyword args.
+
     Returns
     -------
-        Model output or model output after target selection for classification models.
+    Model output or model output after target selection for classification models.
 
     """
     if forward_kwargs is None:
@@ -169,30 +177,30 @@ def _run_forward_from_layer(model: tf.keras.models.Model,
     Parameters
     ----------
     model
-        Tensorflow or keras model.
+        `tensorflow` model.
     layer
         Starting layer for the forward call.
     orig_call
         Original `call` method of the layer.
     orig_dummy_input
         Dummy input needed to initiate the model forward call. The number of instances in the dummy input must
-        be the same as the number of instances in x. The dummy input values play no role in the evaluation
+        be the same as the number of instances in `x`. The dummy input values play no role in the evaluation
         as the  layer's status is overwritten during the forward call.
     x
         Layer's inputs. The layer's status is overwritten with `x` during the forward call.
     target
         Target for the output position to be returned.
     forward_kwargs
-        Input keyword args. It must be a dict with numpy arrays as values. If it's not None,
-        the first dimension of the arrays must correspond to the number of instances in x and orig_dummy_input.
+        Input keyword args. It must be a dict with `numpy` arrays as values. If it's not ``None``,
+        the first dimension of the arrays must correspond to the number of instances in `x` and orig_dummy_input.
     run_from_layer_inputs
-        If True, the forward pass starts from the layer's inputs, if False it starts from the layer's outputs.
+        If ``True``, the forward pass starts from the layer's inputs, if ``False`` it starts from the layer's outputs.
     select_target
         Whether to return predictions for selected targets or return predictions for all targets.
 
     Returns
     -------
-        Model's predictions for the given target.
+    Model's predictions for the given target.
 
     """
 
@@ -245,7 +253,7 @@ def _run_forward_to_layer(model: tf.keras.models.Model,
     Parameters
     ----------
     model
-        Tensorflow or keras model.
+        `tensorflow` model.
     layer
         Starting layer for the forward call.
     orig_call
@@ -255,11 +263,11 @@ def _run_forward_to_layer(model: tf.keras.models.Model,
     forward_kwargs
         Input keyword args.
     run_to_layer_inputs
-        If True, the layer's inputs are returned. If False, the layer's output's are returned.
+        If ``True``, the layer's inputs are returned. If ``False``, the layer's output's are returned.
 
     Returns
     -------
-        Output of the given layer.
+    Output of the given layer.
 
     """
     if forward_kwargs is None:
@@ -316,7 +324,7 @@ def _forward_input_baseline(X: Union[List[np.ndarray], np.ndarray],
     bls
         Baselines.
     model
-        Tensorflow or keras model.
+        `tensorflow` model.
     layer
         Desired layer output.
     orig_call
@@ -324,11 +332,12 @@ def _forward_input_baseline(X: Union[List[np.ndarray], np.ndarray],
     forward_kwargs
         Input keyword args.
     forward_to_inputs
-        If True, X and bls are forwarded to the layer's input. If False, they are forwarded to the layer's outputs.
+        If ``True``, `X` and bls are forwarded to the layer's input. If ``False``, they are forwarded to
+        the layer's outputs.
 
     Returns
     -------
-        Forwarded inputs and  baselines as a numpy arrays.
+    Forwarded inputs and baselines as a `numpy` arrays.
 
     """
     if forward_kwargs is None:
@@ -370,16 +379,17 @@ def _gradients_input(model: Union[tf.keras.models.Model],
     Parameters
     ----------
     model
-        Tensorflow or keras model.
+        `tensorflow` model.
     x
         Input data point.
     target
         Target for which the gradients are calculated if the output dimension is higher than 1.
     forward_kwargs
         Input keyword args.
+
     Returns
     -------
-        Gradients for each input feature.
+    Gradients for each input feature.
 
     """
     if forward_kwargs is None:
@@ -408,12 +418,12 @@ def _gradients_layer(model: Union[tf.keras.models.Model],
     Parameters
     ----------
     model
-        Tensorflow or keras model.
+        `tensorflow` model.
     layer
         Layer of the model with respect to which the gradients are calculated.
     orig_call
         Original `call` method of the layer. This is necessary since the call method is modified by the function
-        in order to make the layer output visible to the GradientTape.
+        in order to make the layer output visible to the `GradientTape`.
     x
         Input data point.
     target
@@ -421,12 +431,12 @@ def _gradients_layer(model: Union[tf.keras.models.Model],
     forward_kwargs
         Input keyword args.
     compute_layer_inputs_gradients
-        If True, gradients are computed with respect to the layer's inputs.
-        If False, they are computed with respect to the layer's outputs.
+        If ``True``, gradients are computed with respect to the layer's inputs.
+        If ``False``, they are computed with respect to the layer's outputs.
 
     Returns
     -------
-        Gradients for each element of layer.
+    Gradients for each element of layer.
 
     """
 
@@ -498,7 +508,7 @@ def _gradients_layer(model: Union[tf.keras.models.Model],
 def _format_baseline(X: np.ndarray,
                      baselines: Union[None, int, float, np.ndarray]) -> np.ndarray:
     """
-    Formats baselines to return a numpy array.
+    Formats baselines to return a `numpy` array.
 
     Parameters
     ----------
@@ -509,7 +519,7 @@ def _format_baseline(X: np.ndarray,
 
     Returns
     -------
-        Formatted inputs and  baselines as a numpy arrays.
+    Formatted inputs and  baselines as a `numpy` arrays.
 
     """
     if baselines is None:
@@ -525,9 +535,9 @@ def _format_baseline(X: np.ndarray,
 
 
 def _format_target(target: Union[None, int, list, np.ndarray],
-                   nb_samples: int) -> Union[None, List[int]]:
+                   nb_samples: int) -> Union[None, np.ndarray]:
     """
-    Formats target to return a list.
+    Formats target to return a np.array.
 
     Parameters
     ----------
@@ -538,18 +548,85 @@ def _format_target(target: Union[None, int, list, np.ndarray],
 
     Returns
     -------
-        Formatted target as a list.
+    Formatted target as a np.array.
 
     """
     if target is not None:
         if isinstance(target, int):
-            target = [target for _ in range(nb_samples)]
-        elif isinstance(target, list) or isinstance(target, np.ndarray):
-            target = [t.astype(int) for t in target]
+            target = np.array([target for _ in range(nb_samples)])
+        elif isinstance(target, list):
+            target = np.array(target)
+        elif isinstance(target, np.ndarray):
+            pass
         else:
             raise NotImplementedError
 
     return target
+
+
+def _check_target(output_shape: Tuple,
+                  target: Optional[np.ndarray],
+                  nb_samples: int) -> None:
+    """
+    Parameters
+    ----------
+    output_shape
+        Output shape of the tensorflow model
+    target
+        Target formatted as np array target.
+    nb_samples
+        Number of samples in the batch.
+
+    Returns
+    -------
+    None
+
+    """
+
+    if target is not None:
+
+        if not np.issubdtype(target.dtype, np.integer):
+            raise ValueError("Targets must be integers")
+
+        if target.shape[0] != nb_samples:
+            raise ValueError(f"First dimension in target must be the same as nb of samples. "
+                             f"Found target first dimension: {target.shape[0]}; nb of samples: {nb_samples}")
+
+        if len(target.shape) > 2:
+            raise ValueError("Target must be a rank-1 or a rank-2 tensor. If target is a rank-2 tensor, "
+                             "each column contains the index of the corresponding dimension "
+                             "in the model's output tensor.")
+
+        if len(output_shape) == 1:
+            # in case of squash output, the rank of the model's output tensor (out_rank) consider the batch dimension
+            out_rank, target_rank = 1, len(target.shape)
+            tmax, tmin = target.max(axis=0), target.min(axis=0)
+
+            if tmax > 1:
+                raise ValueError(f"Target value {tmax} out of range for output shape {output_shape} ")
+
+        # for all other cases, batch dimension is not considered in the out_rank
+        elif len(output_shape) == 2:
+            out_rank, target_rank = 1, len(target.shape)
+            tmax, tmin = target.max(axis=0), target.min(axis=0)
+
+            if (output_shape[-1] > 1 and (tmax >= output_shape[-1]).any()) or (output_shape[-1] == 1 and tmax > 1):
+                raise ValueError(f"Target value {tmax} out of range for output shape {output_shape} ")
+
+        else:
+            out_rank, target_rank = len(output_shape[1:]), target.shape[-1]
+            tmax, tmin = target.max(axis=0), target.min(axis=0)
+
+            if (tmax >= output_shape[1:]).any():
+                raise ValueError(f"Target value {tmax} out of range for output shape {output_shape} ")
+
+        if (tmin < 0).any():
+            raise ValueError(f"Negative value {tmin} for target. Targets represent positional "
+                             f"arguments and cannot be negative")
+
+        if out_rank != target_rank:
+            raise ValueError(f"The last dimension of target  must match the rank of the model's output tensor. "
+                             f"Found target last dimension: {target_rank}; model's output rank: {out_rank}")
 
 
 def _get_target_from_target_fn(target_fn: Callable,
@@ -565,7 +642,7 @@ def _get_target_from_target_fn(target_fn: Callable,
     target_fn
         Target function.
     model
-        Model
+        Model.
     X
         Data to be explained.
     forward_kwargs
@@ -573,7 +650,7 @@ def _get_target_from_target_fn(target_fn: Callable,
 
     Returns
     -------
-    Integer array of dimension (N, ).
+    Integer array of dimension `(N, )`.
     """
     if forward_kwargs is None:
         preds = model(X)
@@ -593,7 +670,7 @@ def _get_target_from_target_fn(target_fn: Callable,
         # TODO: in the future we want to support outputs that are >2D at which point this check should change
         msg = f"`target_fn` returned an array of shape {target.shape} but expected an array of shape {expected_shape}."
         raise ValueError(msg)  # TODO: raise a more specific error type?
-    return target
+    return target.astype(int)
 
 
 def _sum_integral_terms(step_sizes: list,
@@ -610,7 +687,7 @@ def _sum_integral_terms(step_sizes: list,
 
     Returns
     -------
-        Sums of the gradients along the chosen path.
+    Sums of the gradients along the chosen path.
 
     """
     input_str = string.ascii_lowercase[1: len(grads.shape)]
@@ -628,7 +705,7 @@ def _sum_integral_terms(step_sizes: list,
 
 def _calculate_sum_int(batches: List[List[tf.Tensor]],
                        model: Union[tf.keras.Model],
-                       target: Union[None, List[int]],
+                       target: Optional[np.ndarray],
                        target_paths: np.ndarray,
                        n_steps: int,
                        nb_samples: int,
@@ -642,7 +719,7 @@ def _calculate_sum_int(batches: List[List[tf.Tensor]],
     batches
         List of batch gradients.
     model
-        tf.keras or keras model.
+        `tf.keras` or `keras` model.
     target
         List of targets.
     target_paths
@@ -658,7 +735,7 @@ def _calculate_sum_int(batches: List[List[tf.Tensor]],
 
     Returns
     -------
-
+    Sums of the gradients along the chosen path.
     """
     grads = tf.concat(batches[j], 0)
     shape = grads.shape[1:]
@@ -678,20 +755,16 @@ def _calculate_sum_int(batches: List[List[tf.Tensor]],
 
 
 def _validate_output(model: tf.keras.Model,
-                     target: Optional[List[int]]) -> None:
+                     target: Optional[np.ndarray]) -> None:
     """
     Validates the model's output type and raises an error if the output type is not supported.
 
     Parameters
     ----------
     model
-        Keras model for which the output is validated.
+        `Keras` model for which the output is validated.
     target
         Targets for which gradients are calculated
-
-    Returns
-    -------
-
     """
     if not model.output_shape or not any(isinstance(model.output_shape, t) for t in _valid_output_shape_type):
         raise NotImplementedError(f"The model output_shape attribute must be in {_valid_output_shape_type}. "
@@ -707,32 +780,50 @@ def _validate_output(model: tf.keras.Model,
                        "Targets can be either the true classes or the classes predicted by the model.")
 
 
+class LayerState(str, Enum):
+    UNSPECIFIED = 'unspecified'
+    NON_SERIALIZABLE = 'non-serializable'
+    CALLABLE = 'callable'
+
+
 class IntegratedGradients(Explainer):
 
     def __init__(self,
                  model: tf.keras.Model,
-                 layer: Optional[tf.keras.layers.Layer] = None,
+                 layer: Optional[
+                     Union[
+                         Callable[[tf.keras.Model], tf.keras.layers.Layer],
+                         tf.keras.layers.Layer
+                     ]
+                 ] = None,
                  target_fn: Optional[Callable] = None,
                  method: str = "gausslegendre",
                  n_steps: int = 50,
                  internal_batch_size: int = 100
                  ) -> None:
         """
-        An implementation of the integrated gradients method for Tensorflow and Keras models.
+        An implementation of the integrated gradients method for `tensorflow` models.
 
-        For details of the method see the original paper:
-        https://arxiv.org/abs/1703.01365 .
+        For details of the method see the original paper: https://arxiv.org/abs/1703.01365 .
 
         Parameters
         ----------
         model
-            Tensorflow or Keras model.
+            `tensorflow` model.
         layer
-            Layer with respect to which the gradients are calculated.
-            If not provided, the gradients are calculated with respect to the input.
+            A layer or a function having as parameter the model and returning a layer with respect to which the
+            gradients are calculated. If not provided, the gradients are calculated with respect to the input.
+            To guarantee saving and loading of the explainer, the layer has to be specified as a callable which
+            returns a layer given the model. E.g. ``lambda model: model.layers[0].embeddings``.
+        target_fn
+            A scalar function that is applied to the predictions of the model.
+            This can be used to specify which scalar output the attributions should be calculated for.
+            This can be particularly useful if the desired output is not known before calling the model
+            (e.g. explaining the `argmax` output for a probabilistic classifier, in this case we could pass
+            ``target_fn=partial(np.argmax, axis=1)``).
         method
             Method for the integral approximation. Methods available:
-            "riemann_left", "riemann_right", "riemann_middle", "riemann_trapezoid", "gausslegendre".
+            ``"riemann_left"``, ``"riemann_right"``, ``"riemann_middle"``, ``"riemann_trapezoid"``, ``"gausslegendre"``.
         n_steps
             Number of step in the path integral approximation from the baseline to the input instance.
         internal_batch_size
@@ -752,18 +843,33 @@ class IntegratedGradients(Explainer):
 
         if layer is None:
             self.orig_call: Optional[Callable] = None
-            layer_num: Optional[int] = 0
-        else:
-            self.orig_call = layer.call
-            try:
-                layer_num = model.layers.index(layer)
-            except ValueError:
-                logger.info("Layer not in the list of model.layers")
-                layer_num = None
+            self.layer = None
+            layer_meta: Union[int, str] = LayerState.UNSPECIFIED.value
 
-        params['layer'] = layer_num
+        elif isinstance(layer, tf.keras.layers.Layer):
+            self.orig_call = layer.call
+            self.layer = layer
+
+            try:
+                layer_meta = model.layers.index(layer)
+            except ValueError:
+                layer_meta = LayerState.NON_SERIALIZABLE.value
+                logger.warning('Layer not in the list of `model.layers`. Passing the layer directly would not '
+                               'permit the serialization of the explainer. This is due to nested layers. To permit '
+                               'the serialization of the explainer, provide the layer as a callable which returns '
+                               'the layer given the model.')
+
+        elif callable(layer):
+            self.layer = layer(self.model)
+            self.orig_call = self.layer.call
+            self.callable_layer = layer
+            layer_meta = LayerState.CALLABLE.value
+
+        else:
+            raise TypeError(f'Unsupported layer type. Received {type(layer)}.')
+
+        params['layer'] = layer_meta
         self.meta['params'].update(params)
-        self.layer = layer
         self.n_steps = n_steps
         self.method = method
         self.internal_batch_size = internal_batch_size
@@ -788,30 +894,38 @@ class IntegratedGradients(Explainer):
         X
             Instance for which integrated gradients attribution are computed.
         forward_kwargs
-            Input keyword args. If it's not None, it must be a dict with numpy arrays as values.
+            Input keyword args. If it's not ``None``, it must be a dict with `numpy` arrays as values.
             The first dimension of the arrays must correspond to the number of examples.
-            It will be repeated for each of n_steps along the integrated path.
+            It will be repeated for each of `n_steps` along the integrated path.
             The attributions are not computed with respect to these arguments.
         baselines
             Baselines (starting point of the path integral) for each instance.
-            If the passed value is an `np.ndarray` must have the same shape as X.
+            If the passed value is an `np.ndarray` must have the same shape as `X`.
             If not provided, all features values for the baselines are set to 0.
         target
             Defines which element of the model output is considered to compute the gradients.
-            It can be a list of integers or a numeric value. If a numeric value is passed, the gradients are calculated
-            for the same element of the output for all data points.
-            It must be provided if the model output dimension is higher than 1.
+            Target can be a numpy array, a list or a numeric value.
+            Numeric values are only valid if the model's output is a rank-n tensor
+            with n <= 2 (regression and classification models).
+            If a numeric value is passed, the gradients are calculated for
+            the same element of the output for all data points.
             For regression models whose output is a scalar, target should not be provided.
             For classification models `target` can be either the true classes or the classes predicted by the model.
+            It must be provided for classification models and regression models whose output is a vector.
+            If the model's output is a rank-n tensor with n > 2,
+            the target must be a rank-2 numpy array or a list of lists (a matrix) with dimensions nb_samples X (n-1) .
         attribute_to_layer_inputs
             In case of layers gradients, controls whether the gradients are computed for the layer's inputs or
-            outputs. If True, gradients are computed for the layer's inputs, if False for the layer's outputs.
+            outputs. If ``True``, gradients are computed for the layer's inputs, if ``False`` for the layer's outputs.
 
         Returns
         -------
+        explanation
             `Explanation` object including `meta` and `data` attributes with integrated gradients attributions
-            for each feature.
+            for each feature. See usage at `IG examples`_ for details.
 
+            .. _IG examples:
+                https://docs.seldon.io/projects/alibi/en/stable/methods/IntegratedGradients.html
         """
         # target handling logic
         if self.target_fn and target is not None:
@@ -827,7 +941,7 @@ class IntegratedGradients(Explainer):
 
         if self._is_list:
             X = cast(List[np.ndarray], X)  # help mypy out
-            self.orig_dummy_input = [np.zeros((1,) + xx.shape[1:], dtype=xx.dtype) for xx in X]  # type: ignore
+            self.orig_dummy_input = [np.zeros((1,) + xx.shape[1:], dtype=xx.dtype) for xx in X]
             nb_samples = len(X[0])
             input_dtypes = [xx.dtype for xx in X]
             # Formatting baselines in case of models with multiple inputs
@@ -853,9 +967,9 @@ class IntegratedGradients(Explainer):
 
         elif self._is_np:
             X = cast(np.ndarray, X)  # help mypy out
-            self.orig_dummy_input = np.zeros((1,) + X.shape[1:], dtype=X.dtype)  # type: ignore
+            self.orig_dummy_input = np.zeros((1,) + X.shape[1:], dtype=X.dtype)
             nb_samples = len(X)
-            input_dtypes = [X.dtype]  # type: ignore
+            input_dtypes = [X.dtype]
             # Formatting baselines for models with a single input
             baselines = _format_baseline(X, baselines)  # type: ignore # TODO: validate/narrow baselines type
 
@@ -865,7 +979,7 @@ class IntegratedGradients(Explainer):
         # defining integral method
         step_sizes_func, alphas_func = approximation_parameters(self.method)
         step_sizes, alphas = step_sizes_func(self.n_steps), alphas_func(self.n_steps)
-        target = _format_target(target, nb_samples)  # type: ignore[assignment]
+        target = _format_target(target, nb_samples)
 
         if self._is_list:
             X = cast(List[np.ndarray], X)  # help mypy out
@@ -876,8 +990,8 @@ class IntegratedGradients(Explainer):
                 inputs = [tf.keras.Input(shape=xx.shape[1:], dtype=xx.dtype) for xx in X]
                 self.model(inputs, **forward_kwargs)
 
-            _validate_output(self.model, target)  # type: ignore[arg-type]
-
+            _validate_output(self.model, target)
+            _check_target(self.model.output_shape, target, nb_samples)
             if self.layer is None:
                 # No layer passed, attributions computed with respect to the inputs
                 attributions = self._compute_attributions_list_input(X,
@@ -925,7 +1039,7 @@ class IntegratedGradients(Explainer):
                 self.model(inputs, **forward_kwargs)
 
             _validate_output(self.model, target)
-
+            _check_target(self.model.output_shape, target, nb_samples)
             if self.layer is None:
                 attributions = self._compute_attributions_tensor_input(X,
                                                                        baselines,
@@ -974,7 +1088,7 @@ class IntegratedGradients(Explainer):
                                             target,
                                             self._is_list)
 
-        return self.build_explanation(
+        return self._build_explanation(
             X=X,
             forward_kwargs=forward_kwargs,
             baselines=baselines,  # type: ignore[arg-type]
@@ -983,13 +1097,13 @@ class IntegratedGradients(Explainer):
             deltas=deltas
         )
 
-    def build_explanation(self,
-                          X: Union[List[np.ndarray], np.ndarray],
-                          forward_kwargs: Optional[dict],
-                          baselines: List[np.ndarray],
-                          target: Optional[List[int]],
-                          attributions: Union[List[np.ndarray], List[tf.Tensor]],
-                          deltas: np.ndarray) -> Explanation:
+    def _build_explanation(self,
+                           X: Union[List[np.ndarray], np.ndarray],
+                           forward_kwargs: Optional[dict],
+                           baselines: List[np.ndarray],
+                           target: Optional[np.ndarray],
+                           attributions: Union[List[np.ndarray], List[tf.Tensor]],
+                           deltas: np.ndarray) -> Explanation:
         if forward_kwargs is None:
             forward_kwargs = {}
         data = copy.deepcopy(DEFAULT_DATA_INTGRAD)
@@ -1007,13 +1121,21 @@ class IntegratedGradients(Explainer):
         return Explanation(meta=copy.deepcopy(self.meta), data=data)
 
     def reset_predictor(self, predictor: Union[tf.keras.Model]) -> None:
+        """
+        Resets the predictor model.
+
+        Parameters
+        ----------
+        predictor
+            New prediction model.
+        """
         # TODO: check what else should be done (e.g. validate dtypes again?)
         self.model = predictor
 
     def _compute_attributions_list_input(self,
                                          X: List[np.ndarray],
                                          baselines: Union[List[int], List[float], List[np.ndarray]],
-                                         target: Optional[List[int]],
+                                         target: Optional[np.ndarray],
                                          step_sizes: List[float],
                                          alphas: List[float],
                                          nb_samples: int,
@@ -1033,18 +1155,18 @@ class IntegratedGradients(Explainer):
         step_sizes
             Weights in the path integral sum.
         alphas
-            Interpolation parameter defining the points of the interal path.
+            Interpolation parameter defining the points of the integral path.
         nb_samples
             Total number of samples.
         forward_kwargs
             Input keywords args.
         compute_layer_inputs_gradients
             In case of layers gradients, controls whether the gradients are computed for the layer's inputs or
-            outputs. If True, gradients are computed for the layer's inputs, if False for the layer's outputs.
+            outputs. If ``True``, gradients are computed for the layer's inputs, if ``False`` for the layer's outputs.
 
         Returns
         -------
-            Tuple with integrated gradients attributions, deltas and predictions
+        Tuple with integrated gradients attributions, deltas and predictions.
 
         """
         if forward_kwargs is None:
@@ -1054,14 +1176,15 @@ class IntegratedGradients(Explainer):
         # define paths in features' space
         paths = []
         for i in range(len(X)):
-            x, baseline = X[i], baselines[i]  # type: ignore
+            x, baseline = X[i], baselines[i]
             # construct paths
             path = np.concatenate([baseline + alphas[i] * (x - baseline) for i in range(self.n_steps)], axis=0)
             paths.append(path)
 
         if forward_kwargs:
-            paths_kwargs = {k: np.concatenate([forward_kwargs[k] for _ in range(self.n_steps)], axis=0)
-                            for k in forward_kwargs.keys()}  # type: Optional[dict]
+            paths_kwargs: Optional[dict] = {k: np.concatenate([forward_kwargs[k]
+                                            for _ in range(self.n_steps)], axis=0)
+                                            for k in forward_kwargs.keys()}
         else:
             paths_kwargs = None
 
@@ -1129,7 +1252,7 @@ class IntegratedGradients(Explainer):
                                          target, target_paths,
                                          self.n_steps, nb_samples,
                                          step_sizes, j)
-            norm = X[j] - baselines[j]  # type: ignore
+            norm = X[j] - baselines[j]
             attribution = norm * sum_int
             attributions.append(attribution)
 
@@ -1138,7 +1261,7 @@ class IntegratedGradients(Explainer):
     def _compute_attributions_tensor_input(self,
                                            X: Union[np.ndarray, tf.Tensor],
                                            baselines: Union[np.ndarray, tf.Tensor],
-                                           target: Optional[List[int]],
+                                           target: Optional[np.ndarray],
                                            step_sizes: List[float],
                                            alphas: List[float],
                                            nb_samples: int,
@@ -1157,18 +1280,18 @@ class IntegratedGradients(Explainer):
         step_sizes
             Weights in the path integral sum.
         alphas
-            Interpolation parameter defining the points of the interal path.
+            Interpolation parameter defining the points of the integral path.
         nb_samples
             Total number of samples.
         forward_kwargs
             Inputs keywords args.
         compute_layer_inputs_gradients
             In case of layers gradients, controls whether the gradients are computed for the layer's inputs or
-            outputs. If True, gradients are computed for the layer's inputs, if False for the layer's outputs.
+            outputs. If ``True``, gradients are computed for the layer's inputs, if ``False`` for the layer's outputs.
 
         Returns
         -------
-            Tuple with integrated gradients attributions, deltas and predictions
+        Tuple with integrated gradients attributions, deltas and predictions.
         """
         if forward_kwargs is None:
             forward_kwargs = {}
@@ -1176,8 +1299,9 @@ class IntegratedGradients(Explainer):
         paths = np.concatenate([baselines + alphas[i] * (X - baselines) for i in range(self.n_steps)], axis=0)
 
         if forward_kwargs:
-            paths_kwargs = {k: np.concatenate([forward_kwargs[k] for _ in range(self.n_steps)], axis=0)
-                            for k in forward_kwargs.keys()}  # type: Optional[dict]
+            paths_kwargs: Optional[dict] = {k: np.concatenate([forward_kwargs[k]
+                                            for _ in range(self.n_steps)], axis=0)
+                                            for k in forward_kwargs.keys()}
         else:
             paths_kwargs = None
 

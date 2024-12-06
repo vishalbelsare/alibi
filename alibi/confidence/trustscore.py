@@ -26,15 +26,15 @@ class TrustScore:
         alpha
             Fraction of instances to filter out to reduce impact of outliers.
         filter_type
-            Filter method; either 'distance_knn' or 'probability_knn'
+            Filter method: ``'distance_knn'`` | ``'probability_knn'``.
         leaf_size
             Number of points at which to switch to brute-force. Affects speed and memory required to build trees.
-            Memory to store the tree scales with n_samples / leaf_size.
+            Memory to store the tree scales with `n_samples / leaf_size`.
         metric
-            Distance metric used for the tree. See sklearn's DistanceMetric class for a list of available metrics.
+            Distance metric used for the tree. See `sklearn` DistanceMetric class for a list of available metrics.
         dist_filter_type
-            Use either the distance to the k-nearest point (dist_filter_type = 'point') or
-            the average distance from the first to the k-nearest point in the data (dist_filter_type = 'mean').
+            Use either the distance to the k-nearest point (``dist_filter_type = 'point'``) or
+            the average distance from the first to the k-nearest point in the data (``dist_filter_type = 'mean'``).
         """
         self.k_filter = k_filter
         self.alpha = alpha
@@ -52,7 +52,7 @@ class TrustScore:
         Parameters
         ----------
         X
-            Data
+            Data.
 
         Returns
         -------
@@ -75,9 +75,9 @@ class TrustScore:
         Parameters
         ----------
         X
-            Data
+            Data.
         Y
-            Predicted class labels
+            Predicted class labels.
 
         Returns
         -------
@@ -105,15 +105,15 @@ class TrustScore:
         Parameters
         ----------
         X
-            Data
+            Data.
         Y
             Target labels, either one-hot encoded or the actual class label.
         classes
-            Number of prediction classes, needs to be provided if Y equals the predicted class.
+            Number of prediction classes, needs to be provided if `Y` equals the predicted class.
         """
         self.classes = classes if classes is not None else Y.shape[1]
-        self.kdtrees = [None] * self.classes  # type: Any
-        self.X_kdtree = [None] * self.classes  # type: Any
+        self.kdtrees: Any = [None] * self.classes
+        self.X_kdtree: Any = [None] * self.classes
 
         # KDTree and kNeighborsClassifier need 2D data
         if len(X.shape) > 2:
@@ -123,7 +123,7 @@ class TrustScore:
 
         # make sure Y represents predicted classes, not one-hot encodings
         if len(Y.shape) > 1:
-            Y = np.argmax(Y, axis=1)  # type: ignore
+            Y = np.argmax(Y, axis=1)
 
         if self.filter == 'probability_knn':
             X_filter, Y_filter = self.filter_by_probability_knn(X, Y)
@@ -161,8 +161,8 @@ class TrustScore:
         k
             Number of nearest neighbors used for distance calculation.
         dist_type
-            Use either the distance to the k-nearest point (dist_type = 'point') or
-            the average distance from the first to the k-nearest point in the data (dist_type = 'mean').
+            Use either the distance to the k-nearest point (``dist_type = 'point'``) or
+            the average distance from the first to the k-nearest point in the data (``dist_type = 'mean'``).
 
         Returns
         -------
@@ -170,7 +170,7 @@ class TrustScore:
         """
         # make sure Y represents predicted classes, not probabilities
         if len(Y.shape) > 1:
-            Y = np.argmax(Y, axis=1)  # type: ignore
+            Y = np.argmax(Y, axis=1)
 
         # KDTree needs 2D data
         if len(X.shape) > 2:
@@ -178,7 +178,8 @@ class TrustScore:
                            'be queried.'.format(X.shape, X.reshape(X.shape[0], -1).shape))
             X = X.reshape(X.shape[0], -1)
 
-        d = np.tile(None, (X.shape[0], self.classes))  # init distance matrix: [nb instances, nb classes]
+        # init distance matrix: [nb instances, nb classes]
+        d: np.ndarray = np.tile(np.nan, (X.shape[0], self.classes))
 
         for c in range(self.classes):
             d_tmp = self.kdtrees[c].query(X, k=k)[0]  # get k nearest neighbors for each class

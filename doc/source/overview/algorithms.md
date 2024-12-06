@@ -11,17 +11,21 @@ only requirement is to have access to a prediction function (which could be an A
 
 The following table summarizes the capabilities of the current algorithms:
 
-|Method|Models|Exp. types|Classification|Regression|Tabular|Text|Image|Cat. data|Train|Dist.|
-|:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---|:---:|
-|[ALE](../methods/ALE.ipynb)|BB|global|✔|✔|✔| | | |✔| |
-|[Anchors](../methods/Anchors.ipynb)|BB|local|✔| |✔|✔|✔|✔|For Tabular| |
-|[CEM](../methods/CEM.ipynb)|BB* TF/Keras|local|✔| |✔| |✔| |Optional| |
-|[Counterfactuals](../methods/CF.ipynb)|BB* TF/Keras|local|✔| |✔| |✔| |No| |
-|[Prototype Counterfactuals](../methods/CFProto.ipynb)|BB* TF/Keras|local|✔| |✔| |✔|✔|Optional| |
-|[Counterfactuals with RL](https://docs.seldon.io/projects/alibi/en/latest/methods/CFRL.html)|BB|local|✔| |✔| |✔|✔|✔| |
-|[Integrated Gradients](../methods/IntegratedGradients.ipynb)|TF/Keras|local|✔|✔|✔|✔|✔|✔|Optional| |
-|[Kernel SHAP](../methods/KernelSHAP.ipynb)|BB|local  global|✔|✔|✔| | |✔|✔|✔|
-|[Tree SHAP](../methods/TreeSHAP.ipynb)|WB|local  global|✔|✔|✔| | |✔|Optional| | |
+| Method                                                                                       | Models       |  Exp. types   | Classification | Regression | Tabular | Text | Image | Cat. data | Train      | Dist. |
+|:---------------------------------------------------------------------------------------------|:-------------|:-------------:|:--------------:|:----------:|:-------:|:----:|:-----:|:---------:|:-----------|:-----:|
+| [ALE](../methods/ALE.ipynb)                                                                  | BB           |    global     |       ✔        |     ✔      |   ✔     |      |       |           |            |       |
+| [Partial Dependence](../methods/PartialDependence.ipynb)                                     | BB WB        |    global     |       ✔        |     ✔      |    ✔    |      |       |     ✔     |            |       |
+| [PD Variance](../methods/PartialDependenceVariance.ipynb)                                    | BB WB        |    global     |       ✔        |     ✔      |    ✔    |      |       |     ✔     |            |       |
+| [Permutation Importance](../methods/PermutationImportance.ipynb)                             | BB           |    global     |       ✔        |     ✔      |    ✔    |      |       |     ✔     |            |       |
+| [Anchors](../methods/Anchors.ipynb)                                                          | BB           |     local     |       ✔        |            |    ✔    |  ✔   |   ✔   |     ✔     | For Tabular|       |
+| [CEM](../methods/CEM.ipynb)                                                                  | BB* TF/Keras |     local     |       ✔        |            |    ✔    |      |   ✔   |           | Optional   |       |
+| [Counterfactuals](../methods/CF.ipynb)                                                       | BB* TF/Keras |     local     |       ✔        |            |    ✔    |      |   ✔   |           | No         |       |
+| [Prototype Counterfactuals](../methods/CFProto.ipynb)                                        | BB* TF/Keras |     local     |       ✔        |            |    ✔    |      |   ✔   |     ✔     | Optional   |       |
+| [Counterfactuals with RL](https://docs.seldon.io/projects/alibi/en/stable/methods/CFRL.html) | BB           |     local     |       ✔        |            |    ✔    |      |   ✔   |     ✔     | ✔          |       |
+| [Integrated Gradients](../methods/IntegratedGradients.ipynb)                                 | TF/Keras     |     local     |       ✔        |     ✔      |    ✔    |  ✔   |   ✔   |     ✔     | Optional   |       |
+| [Kernel SHAP](../methods/KernelSHAP.ipynb)                                                   | BB           | local  global |       ✔        |     ✔      |    ✔    |      |       |     ✔     | ✔          |   ✔   |
+| [Tree SHAP](../methods/TreeSHAP.ipynb)                                                       | WB           | local  global |       ✔        |     ✔      |    ✔    |      |       |     ✔     | Optional   |       |
+| [Similarity explanations](../methods/Similarity.ipynb)                                       | WB           |     local     |       ✔        |     ✔      |    ✔    |  ✔   |   ✔   |     ✔     | ✔          |       |
 
 
 
@@ -38,14 +42,33 @@ Key:
 
 **Accumulated Local Effects (ALE)**: calculates first-order feature effects on the model with
 respect to a dataset. Intended for use on tabular datasets, currently supports numerical features.
-[Documentation](../methods/ALE.ipynb), [regression example](../examples/ale_regression_boston.nblink),
-[classification example](../examples/ale_classification.nblink).
+[Documentation](../methods/ALE.ipynb), [regression example](../examples/ale_regression_california.ipynb),
+[classification example](../examples/ale_classification.ipynb).
+
+**Partial Dependence**: computes the marginal effect that one or multiple features have on the predicted outcome of a 
+model with respect to a dataset. Intended for use on tabular datasets, black-box and white-box (scikit-learn) models, 
+supporting numerical and categorical features.
+[Documentation](../methods/PartialDependence.ipynb),
+[Bike rental](../examples/pdp_regression_bike.ipynb).
+
+**Partial Dependence Variance**: computes the global feature importance or the feature interaction of a pair of features. 
+The feature importance and the feature interactions are summarized in a single positive number given by the variance 
+within the Partial Dependence function. Intended for use on tabular datasets, black-box and white-box (scikit-learn) models, 
+supporting numerical and categorical features.
+[Documentation](../methods/PartialDependenceVariance.ipynb),
+[Friedman’s regression problem](../examples/pd_variance_regression_friedman.ipynb).
+
+**Permutation Importance**: computes the global feature importance. The computation of the feature importance is based 
+on the degree of model performance degradation when the feature values within a feature column are permuted. Intended
+for use on tabular dataset, black-box models, supporting numerical and categorical features.
+[Documentation](../methods/PermutationImportance.ipynb),
+[Who's Going to Leave Next?](../examples/permutation_importance_classification_leave.ipynb).
  
 **Anchor Explanations**: produce an "anchor" - a small subset of features and their ranges that will
 almost always result in the same model prediction. [Documentation](../methods/Anchors.ipynb),
-[tabular example](../examples/anchor_tabular_adult.nblink),
-[text classification](../examples/anchor_text_movie.nblink),
-[image classification](../examples/anchor_image_imagenet.nblink).
+[tabular example](../examples/anchor_tabular_adult.ipynb),
+[text classification](../examples/anchor_text_movie.ipynb),
+[image classification](../examples/anchor_image_imagenet.ipynb).
 
 **Contrastive Explanation Method (CEM)**: produce a pertinent positive (PP) and a pertinent negative
 (PN) instance. The PP instance finds the features that should be minimally and sufficiently present
@@ -62,7 +85,7 @@ instance that would result in a different prediction). [Documentation](../method
 prototypes other than the class predicted on the original instance. It can use both an encoder or k-d trees
 to define the prototypes. This method can speed up the search, especially for black box models, and create
 interpretable counterfactuals. [Documentation](../methods/CFProto.ipynb),
-[tabular example](../examples/cfproto_housing.nblink),
+[tabular example](../examples/cfproto_housing.ipynb),
 [tabular example with categorical features](../examples/cfproto_cat_adult_ohe.ipynb),
 [image classification](../examples/cfproto_mnist.ipynb).
 
@@ -72,17 +95,17 @@ is model-agnostic (does not assume differentiability) and relies only on feedbac
 generating target-conditional counterfactual instances, flexible feature range constraints for numerical and categorical
 attributes, including the immutability of protected features (e.g. gender, race) and can be easily extended to other 
 data modalities such as images. [Documentation](../methods/CFRL.ipynb), 
-[tabular_example](../examples/cfrl_adult.nblink),
-[image_classification](../examples/cfrl_mnist.nblink).
+[tabular_example](../examples/cfrl_adult.ipynb),
+[image_classification](../examples/cfrl_mnist.ipynb).
 
 **Integrated gradients**: attribute an importance score to each element of the input or an internal layer of the the model  
 with respect to a given baseline. The attributions are calculated as the path integral of the model gradients along a 
 straight line from the baseline to the input.
 [Documentation](../methods/IntegratedGradients.ipynb),
-[MNIST example](../examples/integrated_gradients_mnist.nblink),
-[Imagenet example](../examples/integrated_gradients_imagenet.nblink),
-[IMDB example](../examples/integrated_gradients_imdb.nblink).
-[Transformers example](../examples/integrated_gradients_transformers.nblink).
+[MNIST example](../examples/integrated_gradients_mnist.ipynb),
+[Imagenet example](../examples/integrated_gradients_imagenet.ipynb),
+[IMDB example](../examples/integrated_gradients_imdb.ipynb),
+[Transformers example](../examples/integrated_gradients_transformers.ipynb).
 
 **Kernel Shapley Additive Explanations (Kernel SHAP)**: attribute the change of a model output with respect
 to a given baseline (e.g., average over a reference set) to each of the input features. This is achieved for
@@ -93,7 +116,7 @@ dataset. This algorithm can be used to explain regression models and it is optim
 [continuous data](../examples/kernel_shap_wine_intro.ipynb),
 [more continuous data](../examples/kernel_shap_wine_lr.ipynb),
 [categorical data](../examples/kernel_shap_adult_lr.ipynb),
-[distributed_batch_explanations](../examples/distributed_kernel_shap_adult_lr.ipynb)
+[distributed_batch_explanations](../examples/distributed_kernel_shap_adult_lr.ipynb).
 
 **Tree Shapley Additive Explanations (Tree SHAP)**: attribute the change of a model output with respect to a baseline
 (e.g., average over a reference set or inferred from node data) to each of the input features. Similar to Kernel SHAP,
@@ -105,6 +128,16 @@ perturbation variants of Tree SHAP. This algorithm can be used to explain regres
 [Documentation](../methods/TreeSHAP.ipynb),
 [interventional feature perturbation Tree SHAP](../examples/interventional_tree_shap_adult_xgb.ipynb),
 [path-dependent feature perturbation Tree SHAP](../examples/path_dependent_tree_shap_adult_xgb.ipynb).
+
+**Similarity explanations**: present instances in the training set that are similar to the instance of interest 
+according to a kernel metric. The implemented kernels are gradient-based, meaning that the similarity between 2 
+instances is based on the gradients of the loss function with respect to the model's parameters calculated at each 
+of the instances.
+[Documentation](../methods/Similarity.ipynb),
+[MNIST example](../examples/similarity_explanations_mnist.ipynb),
+[Imagenet example](../examples/similarity_explanations_imagenet.ipynb),
+[20 news groups example](../examples/similarity_explanations_20ng.ipynb).
+
 
 ## Model Confidence
 These algorithms provide **instance-specific** scores measuring the model confidence for making a
@@ -122,13 +155,29 @@ particular prediction.
 between the distance to the nearest class different from the predicted class and the distance to the
 predicted class, higher scores correspond to more trustworthy predictions.
 [Documentation](../methods/TrustScores.ipynb),
-[tabular example](../examples/trustscore_iris.nblink),
-[image classification](../examples/trustscore_mnist.nblink)
+[tabular example](../examples/trustscore_iris.ipynb),
+[image classification](../examples/trustscore_mnist.ipynb).
 
 **Linearity measure**: produces a score quantifying how linear the model is around a test instance.
 The linearity score measures the model linearity around a test instance by feeding the model linear
 superpositions of inputs and comparing the outputs with the linear combination of outputs from
 predictions on single inputs.
-[Documentation](../methods/LinearityMeasure.ipynb)
-[Tabular example](../examples/linearity_measure_iris.nblink),
-[image classification](../examples/linearity_measure_fashion_mnist.nblink)
+[Documentation](../methods/LinearityMeasure.ipynb),
+[Tabular example](../examples/linearity_measure_iris.ipynb),
+[image classification](../examples/linearity_measure_fashion_mnist.ipynb).
+
+## Prototypes
+These algorithms provide a **distilled** view of the dataset and help construct a 1-KNN **interpretable** classifier.
+
+|Method|Classification|Regression|Tabular|Text|Images|Categorical Features|Train set labels|
+|:-----|:-------------|:---------|:------|:---|:-----|:-------------------|:---------------|
+|[ProtoSelect](https://docs.seldon.io/projects/alibi/en/latest/methods/ProtoSelect.html)|✔| |✔|✔|✔|✔| Optional       |
+
+**ProtoSelect**: produces a condensed view of the training dataset and facilitates the construction of an interpretable
+classification model through 1-KNN. Every class *k* of the training dataset is summarised by a prototype set
+constructed to encourage the following three properties: i) covers as many training points as possible of the
+class *k*; ii) covers as few training points as possible of classes different from *k*; iii) is sparse - contains as
+few prototypes as possible. The method can be applied to any data modality as long as there is a meaningful way of
+defining a "distance" between data points which can often be done using a domain-specific pre-processing function.
+[Documentation](../methods/ProtoSelect.ipynb),
+[Tabular and image example](../examples/protoselect_adult_cifar10.ipynb).

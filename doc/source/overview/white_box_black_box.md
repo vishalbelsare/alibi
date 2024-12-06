@@ -43,7 +43,7 @@ There is currently one exception to the black-box interface: the
 type `Callable[[List[str], np.ndarray]`, i.e. the model is expected
 to work on batches of raw text (here `List[str]` indicates a batch
 of text strings). See [this
-example](../examples/anchor_text_movie.nblink) for more
+example](../examples/anchor_text_movie.ipynb) for more
 information.
 ```
 
@@ -72,7 +72,7 @@ explainer = SomeExplainer(predictor, **kwargs)
 In some cases for classifiers it may be more appropriate to expose the
 `predict_proba` or `decision_function` method instead of
 `predict`, see an example on [ALE for
-classifiers](../examples/ale_classification.nblink).
+classifiers](../examples/ale_classification.ipynb).
 
 ### Tensorflow models
 
@@ -93,27 +93,30 @@ thus we need to do a bit more work to define the `predictor` black-box
 function:
 
 ```python
+model.eval()
+
+@torch.no_grad()
 def predictor(X: np.ndarray) -> np.ndarray:
     X = torch.as_tensor(X, dtype=dtype, device=device)
-    return model.forward(X).detach().numpy()
+    return model.forward(X).cpu().numpy()
 ```
 
 Note that there are a few differences with `tensorflow` models: 
 
+- Ensure the model is in the evaluation mode (i.e., `model.eval()`) and that the mode does not change to training (i.e., `model.train()`) between consecutive calls to the explainer. Otherwise consider including `model.eval()` inside the `predictor` function.
+- Decorate the `predictor` with `@torch.no_grad()` to avoid the computation and storage of the gradients which are not needed.
 - Explicit conversion to a tensor with a specific `dtype`. Whilst
 `tensorflow` handles this internally when `predict` is called, for
 `torch` we need to do this manually. 
 - Explicit device selection for the tensor. This is an important step as `numpy` arrays are limited to
 cpu and if your model is on a gpu it will expect its input tensors to be
-on a gpu. 
-- Explicit conversion of prediction tensor to `numpy`. Here
-we detach the output from the gradient graph (as gradient information is
-not needed) and convert to a `numpy` array.
+on a gpu.
+- Explicit conversion of prediction tensor to `numpy`. We first send the output to the cpu and then transform into `numpy` array.
 
 If you are using [Pytorch Lightning](https://www.pytorchlightning.ai)
 to create `torch` models, then the `dtype` and `device` can be
 retrieved as attributes of your `LightningModule`, see
-[here](https://pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html).
+[here](https://pytorch-lightning.readthedocs.io/en/stable/common/lightning_module.html).
 
 ### General models
 

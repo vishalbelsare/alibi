@@ -1,21 +1,142 @@
 # Getting Started
 
 ## Installation
-Alibi works with Python 3.6+ and can be installed from [PyPI](https://pypi.org/project/alibi):
+Alibi works with Python 3.7+ and can be installed from [PyPI](https://pypi.org/project/alibi/) or [conda-forge](https://conda-forge.org/)
+by following the instructions below.
+
+``````{dropdown} Install via PyPI
+```{div} sd-mb-3
+- Alibi can be installed from [PyPI](https://pypi.org/project/alibi/) with `pip`:
+```
+
+`````{tab-set}
+
+````{tab-item} Standard
+:sync: label-standard
+:class-label: sd-pt-0
+```{div} sd-mb-1
+Default installation.
+```
 ```bash
 pip install alibi
 ```
-Alternatively, the development version can be installed:
-```bash
-pip install git+https://github.com/SeldonIO/alibi.git 
-```
+````
 
-````{note}
-Before running the examples, you may need to first run:
+````{tab-item} SHAP
+:sync: label-shap
+:class-label: sd-pt-0
+```{div} sd-mb-1
+Installation with support for computing [SHAP](https://shap.readthedocs.io/en/stable/index.html) values.
+```
 ```bash
-pip install alibi[examples]
+pip install alibi[shap]
 ```
 ````
+
+````{tab-item} Distributed
+:class-label: sd-pt-0
+:sync: label-dist
+```{div} sd-mb-1
+Installation with support for 
+[distributed Kernel SHAP](../examples/distributed_kernel_shap_adult_lr.ipynb).
+```
+```bash
+pip install alibi[ray]
+```
+````
+
+````{tab-item} TensorFlow
+:class-label: sd-pt-0
+:sync: label-tensorflow
+```{div} sd-mb-1
+Installation with support for tensorflow backends. Required for 
+- [Contrastive Explanation Method (CEM)](../methods/CEM.ipynb) 
+- [Counterfactuals Guided by Prototypes](../methods/CFProto.ipynb) 
+- [Counterfactual Instances](../methods/CF.ipynb)
+- [Integrated gradients](../methods/IntegratedGradients.ipynb) 
+- [Anchors on Textual data](../examples/anchor_text_movie.ipynb) with `sampling_strategy='language_model'` 
+- One of Torch or TensorFlow is required for the [Counterfactuals with RL](../methods/CFRL.ipynb) methods
+```
+```bash
+pip install alibi[tensorflow]
+```
+````
+
+````{tab-item} Torch
+:class-label: sd-pt-0
+:sync: label-torch
+```{div} sd-mb-1
+Installation with support for torch backends. One of Torch or TensorFlow is required for: 
+- [Counterfactuals with RL](../methods/CFRL.ipynb)
+- [Similarity explanations](../methods/Similarity.ipynb)
+```
+```bash
+pip install alibi[torch]
+```
+````
+
+````{tab-item} All
+:class-label: sd-pt-0
+:sync: label-all
+```{div} sd-mb-1
+Installs all optional dependencies.
+```
+```bash
+pip install alibi[all]
+```
+````
+`````
+``````
+
+``````{dropdown} Install via conda-forge
+```{div} sd-mb-3
+- To install the conda-forge version it is recommended to use [mamba](https://mamba.readthedocs.io/en/stable/), 
+which can be installed to the *base* conda enviroment with:
+```
+```bash
+conda install mamba -n base -c conda-forge
+```
+```{div} sd-mb-3
+- `mamba` can then be used to install alibi in a conda enviroment:
+```
+
+`````{tab-set}
+
+````{tab-item} Standard
+:sync: label-standard
+:class-label: sd-pt-0
+```{div} sd-mb-1
+Default installation.
+```
+```bash
+mamba install -c conda-forge alibi
+```
+````
+
+````{tab-item} SHAP
+:sync: label-shap
+:class-label: sd-pt-0
+```{div} sd-mb-1
+Installation with support for computing [SHAP](https://shap.readthedocs.io/en/stable/index.html) values.
+```
+```bash
+mamba install -c conda-forge alibi shap
+```
+````
+
+````{tab-item} Distributed
+:sync: label-dist
+:class-label: sd-pt-0
+```{div} sd-mb-1
+Installation with support for distributed computation of explanations.
+```
+```bash
+mamba install -c conda-forge alibi ray 
+```
+````
+
+`````
+``````
 
 ## Features
 Alibi is a Python package designed to help explain the predictions of machine learning models and gauge
@@ -28,18 +149,28 @@ import alibi
 alibi.explainers.__all__
 ```
 ```
-['ALE',
- 'AnchorTabular',
- 'AnchorText',
- 'AnchorImage',
- 'CEM',
- 'Counterfactual',
- 'CounterfactualProto',
- 'CounterfactualRL',
- 'CounterfactualRLTabular',
- 'KernelShap',
- 'plot_ale',
- 'IntegratedGradients'] 
+['ALE', 
+'AnchorTabular',
+'DistributedAnchorTabular', 
+'AnchorText', 
+'AnchorImage', 
+'CEM', 
+'Counterfactual', 
+'CounterfactualProto', 
+'CounterfactualRL', 
+'CounterfactualRLTabular',
+'PartialDependence',
+'TreePartialDependence',
+'PartialDependenceVariance',
+'PermutationImportance',
+'plot_ale',
+'plot_pd',
+'plot_pd_variance',
+'plot_permutation_importance',
+'IntegratedGradients', 
+'KernelShap', 
+'TreeShap',
+'GradientSimilarity']
 ```
 
 For gauging model confidence:
@@ -52,6 +183,14 @@ alibi.confidence.__all__
  'TrustScore']
 ```
 
+For dataset summarization
+```python
+alibi.prototypes.__all__
+```
+```
+['ProtoSelect',
+ 'visualize_image_prototypes']
+```
 
 
 For detailed information on the methods:
@@ -62,10 +201,16 @@ For detailed information on the methods:
     * [Counterfactual Instances](../methods/CF.ipynb)
     * [Counterfactuals Guided by Prototypes](../methods/CFProto.ipynb)
     * [Counterfactuals with RL](../methods/CFRL.ipynb)
-    * [Kernel SHAP](../methods/KernelSHAP.ipynb)
     * [Integrated gradients](../methods/IntegratedGradients.ipynb)
+    * [Kernel SHAP](../methods/KernelSHAP.ipynb)
     * [Linearity Measure](../methods/LinearityMeasure.ipynb)
+    * [ProtoSelect](../methods/ProtoSelect.ipynb)
+    * [PartialDependence](../methods/PartialDependence.ipynb)
+    * [PD Variance](../methods/PartialDependenceVariance.ipynb)
+    * [Permutation Importance](../methods/PermutationImportance.ipynb)
+    * [TreeShap](../methods/TreeSHAP.ipynb)
     * [Trust Scores](../methods/TrustScores.ipynb)
+    * [Similarity explanations](../methods/Similarity.ipynb)
 
 ## Basic Usage
 The alibi explanation API takes inspiration from `scikit-learn`, consisting of distinct initialize,

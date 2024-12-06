@@ -1,83 +1,135 @@
 name: CI
 
+defaults:
+  run:
+    shell: bash  # To override PowerShell on Windows
+
 on:
   # Trigger the workflow on push or pull request,
-  # but only for the master branch
+  # push only for the master branch,
+  # pull request for master and feature branches.
   push:
     branches:
       - master
+      - 'feature/*'
   pull_request:
-    branches:
-      - master
+    # don't trigger for draft PRs
+    types: [ opened, synchronize, reopened, ready_for_review ]
+  # Trigger workflow once per day at midnight
   schedule:
     - cron: '0 0 * * *'
+  # Trigger the workflow on manual dispatch
+  workflow_dispatch:
+    inputs:
+      tmate_enabled:
+        type: boolean
+        description: 'Enable tmate debugging?'
+        required: false
+        default: false
 
 jobs:
   build:
+    if: github.event.pull_request.draft == false
 
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        python-version: [ '3.6', '3.7', '3.8', '3.9' ]
+        os: [ ubuntu-latest ]
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+        include: # Run windows tests on only one python version
+          - os: windows-latest
+            python-version: '3.11'
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
+
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+
       - name: Install dependencies
         run: |
-          pip install --upgrade pip setuptools
-          pip install --upgrade --upgrade-strategy eager -r requirements/dev.txt
-          pip install --upgrade --upgrade-strategy eager -e .
-          pip install --upgrade --upgrade-strategy eager -e .[shap]
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install --upgrade --upgrade-strategy eager -r requirements/dev.txt
+          python -m pip install --upgrade --upgrade-strategy eager .[tensorflow,torch,shap]
+          if [ "$RUNNER_OS" != "Windows" ]; then  
+          # Windows support for ray is experimental (https://docs.ray.io/en/latest/installation.html#windows-support)
+            python -m pip install --upgrade --upgrade-strategy eager .[tensorflow,torch,shap,ray]  # include other deps so that they are taking into account during ray install
+          fi
           python -m spacy download en_core_web_md
-          pip freeze
-      - name: Lint with flake8
-        run: |
-          flake8 alibi
-      - name: Typecheck with mypy
-        run: |
-          mypy alibi
+          python -m pip freeze
+
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate_enabled }}
+        with:
+          limit-access-to-actor: true
+
       - name: Test with pytest
-        run: |
-          pytest -m tf1 alibi
-          pytest -m "not tf1" alibi
+        run: make test
+
       - name: Upload coverage to Codecov
-        if: ${{ success() }}
-        run: |
-          codecov
+        uses: codecov/codecov-action@v4
+        with:
+          directory: .
+          env_vars: ${{matrix.os}}, ${{matrix.python-version}}
+          fail_ci_if_error: false
+          verbose: true
+
       - name: Build Python package
         run: |
           make build_pypi
 
+  code-quality:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.x
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade --upgrade-strategy eager -r requirements/dev.txt
+          python -m pip install --upgrade --upgrade-strategy eager .[all]
+
+      - name: Lint with flake8
+        run: |
+          flake8 alibi
+
+      - name: Typecheck with mypy
+        run: |
+          mypy alibi
+
   docs:
 
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-latest
 
     container:
-      image: readthedocs/build:latest
+      image: readthedocs/build:ubuntu-24.04-2024.06.17
       options: --user root
 
     steps:
-      - uses: actions/checkout@v2
-      - name: Create a virtualenv to use for docs build
-        run: |
-          python3.8 -m virtualenv $HOME/docs
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.x
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
       - name: Install dependencies
         run: |
-          . $HOME/docs/bin/activate
+          python -m pip install --upgrade pip
           python -m pip install -r requirements/docs.txt
           python -m pip freeze
       - name: Build documentation to html
         run: |
-          . $HOME/docs/bin/activate
           make build_docs
       - name: Build documentation to pdf via latex
         run: |
-          . $HOME/docs/bin/activate
           make build_latex
 
   licenses:
@@ -85,13 +137,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Set up Python 3.x
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.8'
+          python-version: '3.10'
       - name: Check 3rd party licenses haven't changed
         run: |
-          pip install "tox>=3.21.0,<4.0.0"
+          pip install "tox>=3.21.0,<5.0.0"
           make licenses
           make check_licenses
+
+  optional_dependencies:
+
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: [ 'default', 'tensorflow', 'torch', 'shap', 'ray', 'all' ]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.x
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Check optional dependency imports are protected
+        run: |
+          pip install "tox>=3.21.0,<5.0.0"
+          tox -e ${{matrix.env}}

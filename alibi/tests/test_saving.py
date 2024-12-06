@@ -1,12 +1,20 @@
+import sys
+import numbers
+
 import numpy as np
 from numpy.testing import assert_allclose
+
 import pytest
 from pytest_lazyfixture import lazy_fixture
+
+import tempfile
+from typing import List, Union
+
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
-import tempfile
+
 import tensorflow as tf
-from typing import List, Union
+import tensorflow.keras as keras
 
 from alibi.explainers import (
     ALE,
@@ -16,16 +24,18 @@ from alibi.explainers import (
     IntegratedGradients,
     KernelShap,
     TreeShap,
-    CounterfactualRLTabular
+    CounterfactualRLTabular,
+    GradientSimilarity
 )
+from alibi.explainers.integrated_gradients import LayerState
 from alibi.saving import load_explainer
 from alibi_testing.data import get_adult_data, get_iris_data, get_movie_sentiment_data
 import alibi_testing
 from alibi.utils.download import spacy_model
 from alibi.explainers.tests.utils import predict_fcn
 
-
 # TODO: consolidate fixtures with those in explainers/tests/conftest.py
+
 
 @pytest.fixture(scope='module')
 def english_spacy_model():
@@ -93,19 +103,19 @@ def rf_classifier(request):
 @pytest.fixture(scope='module')
 def ffn_classifier(request):
     data = request.param
-    inputs = tf.keras.Input(shape=data['X_train'].shape[1:])
-    x = tf.keras.layers.Dense(20, activation='relu')(inputs)
-    x = tf.keras.layers.Dense(20, activation='relu')(x)
-    outputs = tf.keras.layers.Dense(config['output_dim'], activation=config['activation'])(x)
-    model = tf.keras.Model(inputs=inputs, outputs=outputs)
+    inputs = keras.Input(shape=data['X_train'].shape[1:])
+    x = keras.layers.Dense(20, activation='relu')(inputs)
+    x = keras.layers.Dense(20, activation='relu')(x)
+    outputs = keras.layers.Dense(config['output_dim'], activation=config['activation'])(x)
+    model = keras.Model(inputs=inputs, outputs=outputs)
     model.compile(loss=config['loss'], optimizer='adam')
-    model.fit(data['X_train'], tf.keras.utils.to_categorical(data['y_train']), epochs=1)
+    model.fit(data['X_train'], keras.utils.to_categorical(data['y_train']), epochs=1)
     return model
 
 
 @pytest.fixture(scope='module')
 def mnist_predictor():
-    model = alibi_testing.load('mnist-cnn-tf2.2.0')
+    model = alibi_testing.load('mnist-cnn-tf2.18.0.keras')
     predictor = lambda x: model.predict(x)  # noqa
     return predictor
 
@@ -115,19 +125,19 @@ def iris_ae(iris_data):
     from alibi.models.tensorflow.autoencoder import AE
 
     # define encoder
-    encoder = tf.keras.Sequential([
-        tf.keras.layers.Dense(2),
-        tf.keras.layers.Activation('tanh')
+    encoder = keras.Sequential([
+        keras.layers.Dense(2),
+        keras.layers.Activation('tanh')
     ])
 
     # define decoder
-    decoder = tf.keras.Sequential([
-        tf.keras.layers.Dense(4)
+    decoder = keras.Sequential([
+        keras.layers.Dense(4)
     ])
 
     # define autoencoder, compile and fit
     ae = AE(encoder=encoder, decoder=decoder)
-    ae.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3), loss=tf.keras.losses.MeanSquaredError())
+    ae.compile(optimizer=keras.optimizers.Adam(learning_rate=1e-3), loss=keras.losses.MeanSquaredError())
     ae.fit(iris_data['X_train'], iris_data['X_train'], epochs=1)
     return ae
 
@@ -139,9 +149,20 @@ def ale_explainer(iris_data, lr_classifier):
     return ale
 
 
-@pytest.fixture(scope='module')
-def ig_explainer(iris_data, ffn_classifier):
-    ig = IntegratedGradients(model=ffn_classifier)
+@pytest.fixture(scope='module',
+                params=[LayerState.UNSPECIFIED, LayerState.CALLABLE, 1])
+def ig_explainer(request, iris_data, ffn_classifier):
+    layer_meta = request.param
+
+    if layer_meta == LayerState.CALLABLE:
+        def layer(model):
+            return model.layers[1]
+    elif isinstance(layer_meta, numbers.Integral):
+        layer = ffn_classifier.layers[layer_meta]
+    else:
+        layer = None
+
+    ig = IntegratedGradients(model=ffn_classifier, layer=layer)
     return ig
 
 
@@ -218,6 +239,30 @@ def tree_explainer(rf_classifier, iris_data):
     return treeshap
 
 
+# need to define a wrapper for the decoder to return a list of tensors
+class DecoderList(keras.Model):
+    def __init__(self, decoder: keras.Model, **kwargs):
+        super().__init__(**kwargs)
+        self.decoder = decoder
+
+    def call(self, input: Union[tf.Tensor, List[tf.Tensor]], **kwargs):
+        return [self.decoder(input, **kwargs)]
+
+    def get_config(self):
+        # Return the configuration of this class
+        config = super().get_config()
+        config.update({
+            "decoder": keras.utils.serialize_keras_object(self.decoder)  # Serialize the decoder
+        })
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        # Deserialize the decoder and create the instance
+        decoder = keras.utils.deserialize_keras_object(config.pop("decoder"))
+        return cls(decoder=decoder, **config)
+
+
 @pytest.fixture(scope='module')
 def cfrl_explainer(rf_classifier, iris_ae, iris_data):
     # define explainer constants
@@ -226,15 +271,6 @@ def cfrl_explainer(rf_classifier, iris_ae, iris_data):
     COEFF_CONSISTENCY = 0.0
     TRAIN_STEPS = 100
     BATCH_SIZE = 100
-
-    # need to define a wrapper for the decoder to return a list of tensors
-    class DecoderList(tf.keras.Model):
-        def __init__(self, decoder: tf.keras.Model, **kwargs):
-            super().__init__(**kwargs)
-            self.decoder = decoder
-
-        def call(self, input: Union[tf.Tensor, List[tf.Tensor]], **kwargs):
-            return [self.decoder(input, **kwargs)]
 
     # redefine the call method to return a list of tensors.
     iris_ae.decoder = DecoderList(iris_ae.decoder)
@@ -261,6 +297,19 @@ def cfrl_explainer(rf_classifier, iris_ae, iris_data):
 
     # fit the explainer
     explainer.fit(X=iris_data['X_train'])
+    return explainer
+
+
+@pytest.fixture(scope='module')
+def similarity_explainer(ffn_classifier, iris_data):
+    criterion = keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+    explainer = GradientSimilarity(
+        predictor=ffn_classifier,
+        loss_fn=criterion,
+        precompute_grads=True,
+        backend='tensorflow',
+        sim_fn='grad_cos')
+    explainer.fit(X_train=iris_data['X_train'], Y_train=iris_data['y_train'])
     return explainer
 
 
@@ -299,7 +348,26 @@ def test_save_IG(ig_explainer, ffn_classifier, iris_data):
         ig_explainer1 = load_explainer(temp_dir, predictor=ffn_classifier)
 
         assert isinstance(ig_explainer1, IntegratedGradients)
+
+        # need to remove the layer entry since it can be a callable.
+        # Although the callable are identical, they have different addresses in memory
+        layer = ig_explainer.meta['params']['layer']
+        layer1 = ig_explainer1.meta['params']['layer']
+        del ig_explainer.meta['params']['layer']
+        del ig_explainer1.meta['params']['layer']
+
+        # compare metadata
         assert ig_explainer.meta == ig_explainer1.meta
+
+        # compare layers
+        if callable(layer):
+            assert layer.__code__ == layer1.__code__
+        else:
+            assert layer == layer1
+
+        # insert layers back in case the `ig_explainer` will be used in the future
+        ig_explainer.meta['params']['layer'] = layer
+        ig_explainer1.meta['params']['layer'] = layer1
 
         exp1 = ig_explainer.explain(X, target=target)
         assert exp0.meta == exp1.meta
@@ -326,6 +394,7 @@ def test_save_AnchorImage(ai_explainer, mnist_predictor):
         assert exp0.meta == exp1.meta
 
 
+@pytest.mark.skipif(sys.platform.startswith("win"), reason="Test fails intermittently on windows platform")
 @pytest.mark.parametrize('lr_classifier', [lazy_fixture('movie_sentiment_data')], indirect=True)
 @pytest.mark.parametrize('atext_explainer', [lazy_fixture('atext_explainer_nlp'), lazy_fixture('atext_explainer_lm')])
 def test_save_AnchorText(atext_explainer, lr_classifier, movie_sentiment_data):
@@ -434,5 +503,22 @@ def test_save_cfrl(cfrl_explainer, rf_classifier, iris_data):
         assert exp0.meta == exp1.meta
 
         # cfrl is determinstic
-        assert_allclose(exp0.cf["X"].astype(np.float32), exp1.cf["X"].astype(np.float32))
-        assert_allclose(exp0.cf["class"].astype(np.float32), exp1.cf["class"].astype(np.float32))
+        assert_allclose(exp0.cf["X"].astype(np.float32), exp1.cf["X"].astype(np.float32), atol=1e-06, rtol=0)
+        assert_allclose(exp0.cf["class"].astype(np.float32), exp1.cf["class"].astype(np.float32), atol=1e-06, rtol=0)
+
+
+@pytest.mark.parametrize('ffn_classifier', [lazy_fixture('iris_data')], indirect=True)
+def test_save_SimilartyExplainer(similarity_explainer, ffn_classifier, iris_data):
+    X = iris_data['X_test'][:2]
+    exp0 = similarity_explainer.explain(X)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        similarity_explainer.save(temp_dir)
+        similarity_explainer1 = load_explainer(temp_dir, predictor=ffn_classifier)
+        assert isinstance(similarity_explainer1, GradientSimilarity)
+        assert similarity_explainer.meta == similarity_explainer1.meta
+        exp1 = similarity_explainer1.explain(X)
+        assert exp0.meta == exp1.meta
+        assert (exp0.data['scores'] == exp1.data['scores']).all()
+        assert (exp0.data['ordered_indices'] == exp1.data['ordered_indices']).all()
+        assert (exp0.data['most_similar'] == exp1.data['most_similar']).all()
+        assert (exp0.data['least_similar'] == exp1.data['least_similar']).all()

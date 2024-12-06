@@ -6,9 +6,10 @@ import numpy as np
 from typing import List
 
 from alibi.api.defaults import DEFAULT_META_ANCHOR, DEFAULT_DATA_ANCHOR
-from alibi.exceptions import AlibiPredictorCallException, AlibiPredictorReturnTypeError
+from alibi.exceptions import PredictorCallError, PredictorReturnTypeError
 from alibi.explainers import AnchorText
-from alibi.explainers.anchor_text import Neighbors, _load_spacy_lexeme_prob, LanguageModelSampler
+from alibi.explainers.anchors.text_samplers import Neighbors, load_spacy_lexeme_prob
+from alibi.explainers.anchors.language_model_text_sampler import LanguageModelSampler
 from alibi.explainers.tests.utils import predict_fcn
 
 
@@ -92,7 +93,7 @@ def test_explainer(text, n_punctuation_marks, n_unique_words, lr_classifier, pre
         assert len(explainer.perturbation.punctuation) == n_punctuation_marks
         assert len(explainer.perturbation.words) == len(explainer.perturbation.positions)
     else:
-        # do something similar for the transformers. this simplified verison
+        # do something similar for the transformers. this simplified version
         # works because there are not multiple consecutive punctuations
         tokens = lang_model.tokenizer.tokenize(text)
         punctuation = []
@@ -142,7 +143,7 @@ def test_neighbors(nlp):
     tag = 'NN'
     top_n = 10
 
-    neighbor = Neighbors(_load_spacy_lexeme_prob(nlp), w_prob=w_prob)
+    neighbor = Neighbors(load_spacy_lexeme_prob(nlp), w_prob=w_prob)
     n = neighbor.neighbors('book', tag, top_n)
     # The word itself is excluded from the array with similar words
     assert 'book' not in n['words']
@@ -377,6 +378,7 @@ def test_lm_mask(lang_model, num_tokens, sample_proba, filling):
         "punctuation": '',
         "stopwords": [],
         "filling": filling,
+        "frac_mask_templates": 1.0
     }
 
     # define sampler
@@ -384,7 +386,7 @@ def test_lm_mask(lang_model, num_tokens, sample_proba, filling):
     sampler.set_text(text)
 
     # create a bunch of masks
-    raw, data = sampler.create_mask((), 10000, sample_proba, frac_mask_templates=1.0)
+    raw, data = sampler.create_mask((), 10000, **perturb_opts)
 
     # hope that law of large number holds
     empirical_mean1 = np.mean(np.sum(data == 0, axis=1))
@@ -397,6 +399,8 @@ def test_lm_mask(lang_model, num_tokens, sample_proba, filling):
     assert empirical_mean1 == empirical_mean2
 
 
+# marked xfail as test intermittently failing, see https://github.com/SeldonIO/alibi/issues/664
+@pytest.mark.xfail()
 @pytest.mark.parametrize('lang_model', ['DistilbertBaseUncased', 'BertBaseUncased', 'RobertaBase'], indirect=True)
 @pytest.mark.parametrize('filling', ['parallel'])
 @pytest.mark.parametrize('punctuation', [string.punctuation])
@@ -431,20 +435,19 @@ def test_lm_sample_punctuation(lang_model, punctuation, filling, movie_sentiment
 
     for i in range(n):
         text = X_test[i]
-        text = ''.join([chr for chr in text if chr not in string.punctuation])
+        tokens = lang_model.tokenizer.tokenize(text)
+        tokens = [t if not lang_model.is_punctuation(t, perturb_opts['punctuation']) else ' ' for t in tokens]
+        text = lang_model.tokenizer.decoder.decode(tokens)
 
         # set sampler perturb opts
         sampler.set_text(text)
 
         # get masks samples
-        raw, data = sampler.perturb_sentence((), num_samples=10)
+        raw, data = sampler.perturb_sentence((), num_samples=10, **perturb_opts)
 
         for j in range(len(raw)):
-            mask_counts = str(raw[j]).count(lang_model.mask)
-            raw[j] = str(raw[j]).replace(lang_model.mask, '', mask_counts)
-
-            for p in punctuation:
-                assert p not in raw[j]
+            tokens = lang_model.tokenizer.tokenize(raw[j])
+            assert all([not lang_model.is_punctuation(t, perturb_opts['punctuation']) for t in tokens])
 
 
 def bad_predictor_return_type(x: List[str]) -> list:
@@ -466,10 +469,10 @@ def bad_predictor_input_type(x: np.ndarray) -> np.ndarray:
 
 
 def test_anchor_text_fails_init_bad_predictor_input_type_call():
-    with pytest.raises(AlibiPredictorCallException):
+    with pytest.raises(PredictorCallError):
         explainer = AnchorText(bad_predictor_input_type)  # noqa: F841
 
 
 def test_anchor_text_fails_wrong_predictor_return_type():
-    with pytest.raises(AlibiPredictorReturnTypeError):
+    with pytest.raises(PredictorReturnTypeError):
         explainer = AnchorText(bad_predictor_return_type)  # noqa: F841

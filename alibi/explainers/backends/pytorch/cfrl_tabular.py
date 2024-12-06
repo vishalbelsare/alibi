@@ -3,6 +3,11 @@ This module contains utility functions for the Counterfactual with Reinforcement
 :py:class:`alibi.explainers.cfrl_tabular`, for the Pytorch backend.
 """
 
+from typing import List, Dict
+
+import torch
+import torch.nn.functional as F
+
 from alibi.explainers.backends.cfrl_tabular import split_ohe, generate_condition  # noqa: F401
 
 # The following methods are included since `alibi.explainers.backends.pytorch.cfrl_tabular` is an extension to the
@@ -14,10 +19,6 @@ from alibi.explainers.backends.cfrl_tabular import split_ohe, generate_condition
 from alibi.explainers.backends.pytorch.cfrl_base import get_actor, get_critic, get_optimizer, data_generator, \
     encode, decode, generate_cf, update_actor_critic, add_noise, to_numpy, to_tensor, set_seed, \
     save_model, load_model  # noqa: F403, F401
-
-import torch
-import torch.nn.functional as F
-from typing import List, Dict
 
 
 def sample_differentiable(X_hat_split: List[torch.Tensor],
@@ -35,7 +36,7 @@ def sample_differentiable(X_hat_split: List[torch.Tensor],
 
     Returns
     -------
-        Differentiable reconstruction.
+    Differentiable reconstruction.
     """
     num_attr = len(X_hat_split) - len(category_map)
     cat_attr = len(category_map)
@@ -72,11 +73,11 @@ def l0_ohe(input: torch.Tensor,
     target
         Target tensor
     reduction
-        Specifies the reduction to apply to the output: `none` | `mean` | `sum`.
+        Specifies the reduction to apply to the output: ``'none'`` | ``'mean'`` | ``'sum'``.
 
     Returns
     -------
-        L0 loss.
+    L0 loss.
     """
     # Order matters as the gradient of zeros will still flow if reversed order. Maybe consider clipping a bit higher?
     eps = 1e-7 / input.shape[1]
@@ -105,11 +106,11 @@ def l1_loss(input: torch.Tensor, target: torch.Tensor, reduction: str = 'none') 
     target
         Target tensor.
     reduction
-        Specifies the reduction to apply to the output: `none` | `mean` | `sum`.
+        Specifies the reduction to apply to the output: ``'none'`` | ``'mean'`` | ``'sum'``.
 
     Returns
     -------
-        L1 loss.
+    L1 loss.
     """
     return F.l1_loss(input=input, target=target, reduction=reduction)
 
@@ -138,7 +139,7 @@ def sparsity_loss(X_hat_split: List[torch.Tensor],
 
     Returns
     -------
-        Heterogeneous sparsity loss.
+    Heterogeneous sparsity loss.
     """
     # Split the input into a list of tensor, where each element corresponds to a network head
     X_ohe_num_split, X_ohe_cat_split = split_ohe(X_ohe=X_ohe,
@@ -183,7 +184,7 @@ def consistency_loss(Z_cf_pred: torch.Tensor, Z_cf_tgt: torch.Tensor, **kwargs):
 
     Returns
     -------
-        Heterogeneous consistency loss.
+    Heterogeneous consistency loss.
     """
     # Compute consistency loss
     loss = F.mse_loss(Z_cf_pred, Z_cf_tgt)
